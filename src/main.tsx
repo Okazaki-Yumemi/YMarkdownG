@@ -53,6 +53,9 @@ import {
 } from "lucide-react";
 import "./styles.css";
 import "./neovim.css";
+import "./editor-motion.css";
+import { DesktopWorkspace } from "./desktop";
+import { editorMotion } from "./editor-motion";
 
 type Note = {
   id: string;
@@ -63,11 +66,16 @@ type Note = {
   folder: string;
 };
 type Preferences = {
+  smoothCursor: boolean;
+  cursorTrail: boolean;
+  cursorDuration: number;
+  typingFeedback: number;
   theme: string;
   accent: string;
   background: string;
   image: string;
   opacity: number;
+  backgroundTransparency: number;
   blur: number;
   fontSize: number;
   lineHeight: number;
@@ -75,11 +83,16 @@ type Preferences = {
   font: string;
 };
 const defaults: Preferences = {
+  smoothCursor: true,
+  cursorTrail: true,
+  cursorDuration: 120,
+  typingFeedback: 45,
   theme: "dark",
   accent: "#7aa2f7",
   background: "paper",
   image: "",
   opacity: 92,
+  backgroundTransparency: 0,
   blur: 0,
   fontSize: 15,
   lineHeight: 1.85,
@@ -110,7 +123,7 @@ marked.use({
   },
 });
 const welcome =
-  '# 让思考，自由生长\n\n一个属于你的 Markdown 工作空间。\n\n**YMarkdownG** 把即时预览、本地文件和自由定制放在一起。像整理代码一样，整理你的知识。\n\n> 少一点干扰，多一点专注。\n\n## 代码，也是笔记的一部分\n\n```typescript\ninterface Notebook {\n  name: string;\n  path: string;\n}\n\nconst workspace: Notebook = {\n  name: "我的知识库",\n  path: "学习笔记/前端",\n};\n```\n\n## 你的目录，你的文件\n\n1. 点击左上角，选择本地笔记空间\n2. 在 EXPLORER 中创建多级目录\n3. 新建笔记，内容自动写入 `.md` 文件\n\n不选择目录时，也可以先在浏览器中书写。\n\n## 调整到你喜欢的样子\n\n- [x] 深色主题与等宽字体\n- [x] 代码高亮与即时预览\n- [ ] 上传一张自己的背景\n- [ ] 记录今天的第一个想法\n\n---\n\n`Ctrl + P` 快速打开 · `Ctrl + S` 导出 · `Ctrl + Shift + F` 专注模式\n';
+  '# 让思考，自由生长\n\n一个属于你的 Markdown 工作空间。\n\n**YMarkdownG** 把即时预览、本地文件和自由定制放在一起。像整理代码一样，整理你的知识。\n\n> 少一点干扰，多一点专注。\n\n## 代码，也是笔记的一部分\n\n```typescript\ninterface Notebook {\n  name: string;\n  path: string;\n}\n\nconst workspace: Notebook = {\n  name: "我的知识库",\n  path: "学习笔记/前端",\n};\n```\n\n## 你的目录，你的文件\n\n1. 点击左上角，选择本地笔记空间\n2. 在 EXPLORER 中创建多级目录\n3. 新建笔记，内容自动写入 `.md` 文件\n\n桌面版会自动打开上次使用的目录，首次启动使用文档文件夹下的 YMarkdownG。\n\n## 调整到你喜欢的样子\n\n- [x] 深色主题与等宽字体\n- [x] 代码高亮与即时预览\n- [ ] 上传一张自己的背景\n- [ ] 记录今天的第一个想法\n\n---\n\n`Ctrl + P` 快速打开 · `Ctrl + S` 保存 · `Ctrl + Shift + F` 专注模式\n';
 const seeds: Note[] = [
   {
     id: "welcome",
@@ -158,6 +171,7 @@ function read<T>(key: string, fallback: T): T {
 }
 function App() {
   const [notes, setNotes] = useState<Note[]>(() => {
+    if (window.desktop) return [];
     const value = read<Note[]>("ymg-notes", seeds);
     return Array.isArray(value) &&
       value.every(
@@ -182,14 +196,20 @@ function App() {
   const [saveError, setSaveError] = useState(false);
   const [menu, setMenu] = useState(false);
   const [pendingDelete, setPendingDelete] = useState(false);
-  const [workspace, setWorkspace] = useState<DiskWorkspace | null>(null);
+  const [workspace, setWorkspace] = useState<
+    DiskWorkspace | DesktopWorkspace | null
+  >(null);
+  const [desktopLoading, setDesktopLoading] = useState(!!window.desktop);
+  const restorePromise = useRef<
+    ReturnType<NonNullable<typeof window.desktop>["restore"]> | undefined
+  >(undefined);
   const [previousWorkspace, setPreviousWorkspace] = useState<DirectoryHandle>();
   const [diskStatus, setDiskStatus] = useState<"saved" | "saving" | "error">(
     "saved",
   );
   const [diskError, setDiskError] = useState("");
   const [folders, setFolders] = useState<string[]>(() =>
-    read("ymg-folders", ["开始使用", "日常随记"]),
+    window.desktop ? [] : read("ymg-folders", ["开始使用", "日常随记"]),
   );
   const [folderDialog, setFolderDialog] = useState(false);
   const [folderName, setFolderName] = useState("");
@@ -214,6 +234,62 @@ function App() {
   const patch = (values: Partial<Preferences>) =>
     setPrefs((p) => ({ ...p, ...values }));
   const notify = (message: string) => setToast(message);
+  const editorExtensions = useMemo(
+    () => [
+      markdown({ codeLanguages: languages }),
+      editorMotion({
+        enabled: prefs.smoothCursor,
+        trail: prefs.cursorTrail,
+        duration: prefs.cursorDuration,
+        feedback: prefs.typingFeedback,
+      }),
+    ],
+    [
+      prefs.smoothCursor,
+      prefs.cursorTrail,
+      prefs.cursorDuration,
+      prefs.typingFeedback,
+    ],
+  );
+  useEffect(() => {
+    if (!window.desktop) return;
+    let cancelled = false;
+    restorePromise.current ??= window.desktop.restore();
+    void restorePromise.current
+      .then((data) => {
+        if (cancelled) return;
+        setWorkspace(new DesktopWorkspace(data));
+        setNotes(data.notes);
+        setFolders(data.folders);
+        setActiveId(data.notes[0]?.id || "");
+      })
+      .catch((error) => {
+        if (!cancelled)
+          notify(
+            `无法恢复笔记空间：${error.message}，请从左上角选择其他目录。`,
+          );
+      })
+      .finally(() => {
+        if (!cancelled) setDesktopLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  useEffect(() => {
+    if (!window.desktop) return;
+    return window.desktop.onFlush(() => {
+      clearTimeout(diskTimer.current);
+      void (async () => {
+        try {
+          if (workspace) await workspace.save(notesRef.current);
+          window.desktop!.flushed(true);
+        } catch (error) {
+          window.desktop!.flushed(false, (error as Error).message);
+        }
+      })();
+    });
+  }, [workspace]);
   useEffect(() => {
     if (toast) {
       const t = setTimeout(() => setToast(""), 3200);
@@ -221,7 +297,7 @@ function App() {
     }
   }, [toast]);
   useEffect(() => {
-    if (workspace) return;
+    if (workspace || window.desktop) return;
     try {
       localStorage.setItem("ymg-notes", JSON.stringify(notes));
       localStorage.setItem("ymg-folders", JSON.stringify(folders));
@@ -231,6 +307,7 @@ function App() {
     }
   }, [notes, folders, workspace]);
   useEffect(() => {
+    if (window.desktop) return;
     void lastWorkspace()
       .then(setPreviousWorkspace)
       .catch(() => {});
@@ -239,6 +316,7 @@ function App() {
     if (!workspace) return;
     const version = ++diskVersion.current;
     setDiskStatus("saving");
+    window.desktop?.setDirty(true);
     diskTimer.current = setTimeout(() => {
       void workspace
         .save(notes)
@@ -246,6 +324,7 @@ function App() {
           if (diskVersion.current === version) {
             setDiskStatus("saved");
             setDiskError("");
+            window.desktop?.setDirty(false);
           }
         })
         .catch((error) => {
@@ -260,7 +339,7 @@ function App() {
   }, [notes, workspace]);
   useEffect(() => {
     const handler = (e: BeforeUnloadEvent) => {
-      if (workspace && diskStatus !== "saved") {
+      if (!window.desktop && workspace && diskStatus !== "saved") {
         e.preventDefault();
         e.returnValue = "";
       }
@@ -269,6 +348,27 @@ function App() {
     return () => window.removeEventListener("beforeunload", handler);
   }, [workspace, diskStatus]);
   async function openWorkspace(reconnect = false) {
+    if (window.desktop) {
+      try {
+        if (workspace) {
+          clearTimeout(diskTimer.current);
+          await workspace.save(notesRef.current);
+        }
+        const data = await window.desktop.open();
+        if (!data) return;
+        setWorkspace(new DesktopWorkspace(data));
+        setNotes(data.notes);
+        setFolders(data.folders);
+        setActiveId(data.notes[0]?.id || "");
+        setFilter("all");
+        setQuery("");
+        setWorkspaceMenu(false);
+        notify(`已打开 ${data.root}`);
+      } catch (error) {
+        notify(`打开失败：${(error as Error).message}`);
+      }
+      return;
+    }
     if (!window.showDirectoryPicker)
       return notify("选择磁盘空间需要使用 Chrome 或 Edge 打开本地地址。");
     try {
@@ -322,6 +422,10 @@ function App() {
     }
   }
   async function createFolder() {
+    if (window.desktop && !workspace) {
+      void openWorkspace();
+      return;
+    }
     try {
       const folder = cleanFolder(folderName);
       if (workspace) await workspace.createFolder(folder);
@@ -368,6 +472,10 @@ function App() {
       ),
     );
   function createNote() {
+    if (window.desktop && !workspace) {
+      void openWorkspace();
+      return;
+    }
     setNewTitle("");
     setTargetFolder(
       ["all", "recent", "starred"].includes(filter)
@@ -397,6 +505,15 @@ function App() {
   }
   function exportNote() {
     if (!note) return;
+    if (window.desktop) {
+      void window.desktop
+        .exportNote(note.title, note.content)
+        .then((saved) => {
+          if (saved) notify("笔记已导出");
+        })
+        .catch((error) => notify(`导出失败：${error.message}`));
+      return;
+    }
     const url = URL.createObjectURL(
       new Blob([note.content], { type: "text/markdown;charset=utf-8" }),
     );
@@ -429,7 +546,27 @@ function App() {
       if (e.metaKey || e.ctrlKey) {
         if (e.key.toLowerCase() === "s") {
           e.preventDefault();
-          exportNote();
+          if (window.desktop && workspace) {
+            clearTimeout(diskTimer.current);
+            const version = ++diskVersion.current;
+            setDiskStatus("saving");
+            window.desktop.setDirty(true);
+            void workspace
+              .save(notesRef.current)
+              .then(() => {
+                if (diskVersion.current === version) {
+                  setDiskStatus("saved");
+                  setDiskError("");
+                  window.desktop!.setDirty(false);
+                  notify("已保存到磁盘");
+                }
+              })
+              .catch((error) => {
+                setDiskStatus("error");
+                setDiskError(error.message);
+                notify(error.message);
+              });
+          } else exportNote();
         }
         if (e.key.toLowerCase() === "b") {
           e.preventDefault();
@@ -606,7 +743,7 @@ function App() {
             }}
           >
             <span className="brand-symbol">
-              <img src="/icon.svg" alt="YMG 文档图标" width="32" height="32" />
+              <img src="./icon.svg" alt="YMG 文档图标" width="32" height="32" />
             </span>
             <span>
               YMarkdown<span className="brand-g">G</span>
@@ -620,7 +757,8 @@ function App() {
             >
               <span className="workspace-avatar">Y</span>
               <span>
-                {workspace?.root.name || "浏览器笔记空间"}
+                {workspace?.root.name ||
+                  (window.desktop ? "选择笔记空间" : "浏览器笔记空间")}
                 <small>
                   {workspace ? "磁盘目录 · 自动保存" : "点击选择本地文件夹"}
                 </small>
@@ -639,10 +777,20 @@ function App() {
                     重新打开 {previousWorkspace.name}
                   </button>
                 )}
-                <button onClick={() => void browserWorkspace()}>
-                  <BookOpen size={15} />
-                  浏览器笔记空间
-                </button>
+                {!window.desktop && (
+                  <button onClick={() => void browserWorkspace()}>
+                    <BookOpen size={15} />
+                    浏览器笔记空间
+                  </button>
+                )}
+                {window.desktop && workspace instanceof DesktopWorkspace && (
+                  <button
+                    onClick={() => void window.desktop!.reveal(workspace.id)}
+                  >
+                    <FolderOpen size={15} />
+                    在文件管理器中打开
+                  </button>
+                )}
                 <p>目录对应文件夹，笔记保存为 .md 文件</p>
               </div>
             )}
@@ -935,6 +1083,7 @@ function App() {
                     ? `url(${prefs.image})`
                     : undefined,
                 filter: `blur(${prefs.blur}px)`,
+                opacity: (100 - prefs.backgroundTransparency) / 100,
               }}
             />
             <div className={`document-shell mode-${mode} font-${prefs.font}`}>
@@ -959,7 +1108,7 @@ function App() {
                           ref={editor}
                           value={note.content}
                           theme={prefs.theme === "dark" ? "dark" : "light"}
-                          extensions={[markdown({ codeLanguages: languages })]}
+                          extensions={editorExtensions}
                           basicSetup={{
                             lineNumbers: true,
                             foldGutter: true,
@@ -1083,6 +1232,7 @@ function App() {
                   { id: "background", name: "背景" },
                   { id: "type", name: "排版" },
                   { id: "outline", name: "大纲" },
+                  { id: "motion", name: "动效" },
                 ].map((t) => (
                   <button
                     key={t.id}
@@ -1094,6 +1244,63 @@ function App() {
                 ))}
               </div>
               <div className="settings-body">
+                {tab === "motion" && (
+                  <>
+                    <div className="motion-intro">
+                      光标随你的思路平滑移动。跳转带有短暂拖影，输入时给出轻微光晕反馈。
+                    </div>
+                    <label className="toggle-setting">
+                      <span>
+                        平滑光标<small>关闭后使用原生光标</small>
+                      </span>
+                      <input
+                        aria-label="平滑光标"
+                        type="checkbox"
+                        checked={prefs.smoothCursor}
+                        onChange={(e) =>
+                          patch({ smoothCursor: e.target.checked })
+                        }
+                      />
+                    </label>
+                    <label className="toggle-setting">
+                      <span>
+                        跳转拖影<small>跨行、点击和方向键移动</small>
+                      </span>
+                      <input
+                        aria-label="跳转拖影"
+                        type="checkbox"
+                        checked={prefs.cursorTrail}
+                        onChange={(e) =>
+                          patch({ cursorTrail: e.target.checked })
+                        }
+                      />
+                    </label>
+                    <Range
+                      label="光标动画时长"
+                      value={prefs.cursorDuration}
+                      min={40}
+                      max={260}
+                      step={10}
+                      unit="ms"
+                      onChange={(value) => patch({ cursorDuration: value })}
+                    />
+                    <Range
+                      label="打字反馈强度"
+                      value={prefs.typingFeedback}
+                      min={0}
+                      max={100}
+                      unit="%"
+                      onChange={(value) => patch({ typingFeedback: value })}
+                    />
+                    <div className="motion-demo">
+                      <span>▌</span> keep your thoughts flowing
+                      <p>
+                        设为 0
+                        可关闭打字反馈。遵循系统“减少动态效果”设置，输入不加入人工延迟。
+                      </p>
+                    </div>
+                  </>
+                )}
                 {tab === "background" && (
                   <>
                     <label className="setting-label">界面主题</label>
@@ -1210,7 +1417,18 @@ function App() {
                       上传背景图片<small>JPG / PNG</small>
                     </button>
                     <Range
-                      label="纸张不透明度"
+                      label="背景图片透明度"
+                      value={prefs.backgroundTransparency}
+                      min={0}
+                      max={100}
+                      unit="%"
+                      onChange={(v) => patch({ backgroundTransparency: v })}
+                    />
+                    <p className="background-help">
+                      0% 显示原图，100% 完全透明。图片最大 3 MB。
+                    </p>
+                    <Range
+                      label="编辑区不透明度"
                       value={prefs.opacity}
                       min={30}
                       max={100}
@@ -1228,9 +1446,9 @@ function App() {
                     <div className="tip">
                       <span>✧</span>
                       <p>
-                        一点喜欢的颜色，一张熟悉的风景。
+                        调低编辑区不透明度，可让背景透过正文。
                         <br />
-                        把这里，变成你的灵感角落。
+                        图片与透明度设置会自动保存。
                       </p>
                     </div>
                   </>
@@ -1502,6 +1720,13 @@ function App() {
               点击打开笔记 <span>esc 关闭</span>
             </div>
           </div>
+        </div>
+      )}
+      {desktopLoading && (
+        <div className="desktop-loading">
+          <img src="./icon.svg" width="56" height="56" alt="YMG" />
+          <span>正在打开本地笔记空间…</span>
+          <small>YMarkdownG Desktop</small>
         </div>
       )}
       {toast && (

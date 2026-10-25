@@ -1,0 +1,127 @@
+.cm-editor {
+  position: relative;
+}
+.background-help {
+  color: var(--muted);
+  font-size: 9px;
+  line-height: 1.8;
+  margin: -11px 0 20px;
+}
+.ymg-motion-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 4;
+  overflow: hidden;
+}
+.ymg-motion-layer[hidden] {
+  display: none;
+}
+.ymg-motion-layer > svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  fill: var(--accent);
+}
+.ymg-animated-caret {
+  position: absolute;
+  left: 0;
+  top: 0;
+  background: color-mix(in srgb, var(--accent) 62%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 90%, white);
+  border-radius: 1px;
+  will-change: transform;
+  mix-blend-mode: screen;
+}
+.app:not(.dark) .ymg-animated-caret {
+  mix-blend-mode: multiply;
+}
+.ymg-motion-enabled .cm-cursor {
+  visibility: hidden !important;
+}
+.ymg-motion-enabled .cm-content {
+  caret-color: transparent !important;
+}
+.ymg-type-pulse {
+  position: absolute;
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--accent);
+  border-radius: 50%;
+  pointer-events: none;
+}
+.motion-intro {
+  padding: 13px;
+  border: 1px solid var(--border);
+  background: var(--accent-soft);
+  font-size: 10px;
+  color: var(--muted);
+  line-height: 1.8;
+  margin-bottom: 22px;
+}
+.toggle-setting {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 22px;
+  font-size: 10px;
+}
+.toggle-setting > span > small {
+  display: block;
+  color: var(--muted);
+  font-size: 9px;
+  margin-top: 5px;
+}
+.toggle-setting input {
+  accent-color: var(--accent);
+  width: 15px;
+  height: 15px;
+  cursor: pointer;
+}
+.motion-demo {
+  padding: 17px 12px;
+  border: 1px solid var(--border);
+  font-size: 11px;
+  line-height: 2;
+  color: var(--muted);
+}
+.motion-demo > span {
+  color: var(--accent);
+}
+.motion-demo > p {
+  margin: 5px 0 0;
+  font-size: 9px;
+}
+.desktop-badge {
+  font-size: 8px;
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  padding: 2px 5px;
+  color: var(--accent);
+  margin-left: 7px;
+}
+.desktop-loading {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: var(--base);
+  display: grid;
+  place-content: center;
+  text-align: center;
+  color: var(--accent);
+  gap: 12px;
+}
+.desktop-loading small {
+  color: var(--muted);
+}
+@media (prefers-reduced-motion: reduce) {
+  .ymg-type-pulse {
+    display: none;
+  }
+  .ymg-animated-caret {
+    will-change: auto;
+  }
+}

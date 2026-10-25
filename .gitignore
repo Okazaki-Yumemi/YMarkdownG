@@ -4,3 +4,5 @@ dist/
 *.local
 *.log
 test-results/
+release/
+.desktop-test/

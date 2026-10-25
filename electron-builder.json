@@ -1,0 +1,27 @@
+{
+  "appId": "io.github.okazaki-yumemi.ymarkdowng",
+  "productName": "YMarkdownG",
+  "directories": { "output": "release" },
+  "files": [
+    "dist/**/*",
+    "electron/**/*",
+    "public/icon-512.png",
+    "public/favicon.ico",
+    "package.json"
+  ],
+  "asar": true,
+  "electronDist": "node_modules/electron/dist",
+  "npmRebuild": false,
+  "win": {
+    "icon": "public/favicon.ico",
+    "target": [{ "target": "portable", "arch": ["x64"] }],
+    "artifactName": "YMarkdownG-${version}-Windows-${arch}.${ext}"
+  },
+  "portable": { "requestExecutionLevel": "user" },
+  "nsis": {
+    "oneClick": false,
+    "allowToChangeInstallationDirectory": true,
+    "createDesktopShortcut": true,
+    "artifactName": "YMarkdownG-${version}-Setup-${arch}.${ext}"
+  }
+}
