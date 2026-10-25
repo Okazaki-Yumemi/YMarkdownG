@@ -1,74 +1,92 @@
-name: Publish Windows Release
-
+name: Publish Desktop Release
 on:
   push:
-    tags:
-      - 'v*'
-
+    tags: ['v*']
 permissions:
-  contents: write
-
+  contents: read
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
-
 jobs:
-  windows:
-    runs-on: windows-latest
-    timeout-minutes: 25
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { platform: windows-x64, runner: windows-latest, command: 'npm run package:win' }
+          - { platform: macos-arm64, runner: macos-15, command: 'npm run package:mac -- --arm64' }
+          - { platform: macos-x64, runner: macos-15-intel, command: 'npm run package:mac -- --x64' }
+          - { platform: linux-x64, runner: ubuntu-22.04, command: 'npm run package:linux' }
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 35
     defaults:
       run:
-        shell: pwsh
+        shell: bash
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
-        with:
-          node-version: '22'
-          cache: npm
-      - name: Install dependencies and Electron runtime
+        with: { node-version: '22', cache: npm }
+      - name: Install dependencies and runtime
         run: |
+          set -euo pipefail
           npm ci
-          if ($LASTEXITCODE -ne 0) { throw 'Dependency installation failed' }
           node -e "require('electron')"
-          if ($LASTEXITCODE -ne 0) { throw 'Electron runtime installation failed' }
-      - name: Validate version and native storage
+      - name: Check version and native storage
         env:
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
-          $version = node -p "require('./package.json').version"
-          if ($env:RELEASE_TAG -ne "v$version") { throw 'Tag does not match package.json version' }
+          set -euo pipefail
+          node -e "if(process.env.RELEASE_TAG !== 'v'+require('./package.json').version) throw Error('Tag and version differ')"
           node --test tests/native-store.test.cjs
-          if ($LASTEXITCODE -ne 0) { throw 'Native storage tests failed' }
-      - name: Build Windows portable executable
-        run: |
-          npm run package:win
-          if ($LASTEXITCODE -ne 0) { throw 'Windows build failed' }
-      - name: Create checksum and publish complete release
+      - name: Build ${{ matrix.platform }}
+        run: ${{ matrix.command }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-${{ matrix.platform }}
+          if-no-files-found: error
+          retention-days: 7
+          path: |
+            release/*.exe
+            release/*.dmg
+            release/*.zip
+            release/*.AppImage
+            release/*.blockmap
+            release/*.yml
+            !release/builder-*.yml
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions: { contents: write }
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v4
+        with: { pattern: 'desktop-*', path: release, merge-multiple: true }
+      - name: Verify platform assets, checksum and publish
+        shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
-          $version = node -p "require('./package.json').version"
-          $artifact = Get-Item "release/YMarkdownG-$version-Windows-x64.exe"
-          $hash = (Get-FileHash -LiteralPath $artifact.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
-          "$hash *$($artifact.Name)" | Set-Content -LiteralPath release/SHA256SUMS.txt -Encoding utf8NoBOM
-          $notes = ".github/release-notes/$($env:RELEASE_TAG).md"
-          if (!(Test-Path -LiteralPath $notes)) { throw "Missing release notes: $notes" }
-          $existingJson = gh release view $env:RELEASE_TAG --json isDraft 2>$null
-          if ($LASTEXITCODE -eq 0) {
-            $existing = $existingJson | ConvertFrom-Json
-            if (!$existing.isDraft) { throw 'This version is already published; existing releases are never overwritten' }
-          } else {
-            gh release create $env:RELEASE_TAG --verify-tag --draft --title "YMarkdownG $($env:RELEASE_TAG) · Windows 桌面版" --notes-file $notes
-            if ($LASTEXITCODE -ne 0) { throw 'Draft release creation failed' }
-          }
-          gh release upload $env:RELEASE_TAG $artifact.FullName release/SHA256SUMS.txt --clobber
-          if ($LASTEXITCODE -ne 0) { throw 'Release asset upload failed' }
-          $release = gh release view $env:RELEASE_TAG --json assets | ConvertFrom-Json
-          if ($LASTEXITCODE -ne 0) { throw 'Release verification failed' }
-          $uploaded = @($release.assets | Where-Object { $_.name -eq $artifact.Name })
-          $checksums = @($release.assets | Where-Object { $_.name -eq 'SHA256SUMS.txt' })
-          if ($uploaded.Count -ne 1 -or $uploaded[0].size -ne $artifact.Length -or $checksums.Count -ne 1) { throw 'Release assets are incomplete' }
-          gh release edit $env:RELEASE_TAG --draft=false --latest
-          if ($LASTEXITCODE -ne 0) { throw 'Release publication failed' }
+          set -euo pipefail
+          version="${RELEASE_TAG#v}"
+          required=("YMarkdownG-$version-Windows-x64.exe" "YMarkdownG-$version-Setup-x64.exe" "YMarkdownG-$version-Setup-x64.exe.blockmap" "latest.yml" "YMarkdownG-$version-macOS-arm64.dmg" "YMarkdownG-$version-macOS-x64.dmg" "YMarkdownG-$version-macOS-arm64.zip" "YMarkdownG-$version-macOS-x64.zip" "YMarkdownG-$version-Linux-x64.AppImage")
+          for name in "${required[@]}"; do test -s "release/$name" || { echo "Missing $name"; exit 1; }; done
+          (cd release && sha256sum -- * > ../SHA256SUMS.txt)
+          mv SHA256SUMS.txt release/
+          notes=".github/release-notes/$RELEASE_TAG.md"
+          test -f "$notes"
+          if gh release view "$RELEASE_TAG" --json isDraft > existing-release.json 2>/dev/null; then
+            jq -e '.isDraft == true' existing-release.json >/dev/null || { echo 'Release already published; refusing overwrite'; exit 1; }
+          else
+            gh release create "$RELEASE_TAG" --verify-tag --draft --title "YMarkdownG $RELEASE_TAG · Desktop" --notes-file "$notes"
+          fi
+          gh release upload "$RELEASE_TAG" release/* --clobber
+          gh release view "$RELEASE_TAG" --json assets > uploaded-assets.json
+          for file in release/*; do
+            name="$(basename "$file")"; bytes="$(stat -c%s "$file")"
+            jq -e --arg name "$name" --argjson bytes "$bytes" '.assets | any(.name == $name and .size == $bytes)' uploaded-assets.json >/dev/null
+          done
+          gh release edit "$RELEASE_TAG" --draft=false --latest

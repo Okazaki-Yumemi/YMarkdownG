@@ -218,5 +218,67 @@ class NativeStore {
     if (!folder) throw new Error("请输入目录名称");
     await this.resolve(folder, true);
   }
+  moveFolder(from, to) {
+    const task = this.queue
+      .catch(() => {})
+      .then(async () => {
+        if (!from || !to) throw new Error("不能移动笔记空间根目录");
+        if (from === to) return this.snapshot();
+        if (to.toLowerCase().startsWith(`${from.toLowerCase()}/`))
+          throw new Error("不能将目录移入自身或子目录");
+        const source = await this.resolve(from);
+        const parts = to.split("/");
+        const name = parts.pop();
+        const parent = await this.resolve(parts.join("/"));
+        if (
+          !name ||
+          name === "." ||
+          name === ".." ||
+          name.startsWith(".") ||
+          /[<>:"/\\|?*\x00-\x1f]/.test(name) ||
+          /[. ]$/.test(name)
+        )
+          throw new Error("无效目录名称");
+        const destination = path.join(parent, name);
+        try {
+          await fs.lstat(destination);
+          if (
+            process.platform !== "win32" ||
+            source.toLowerCase() !== destination.toLowerCase()
+          )
+            throw new Error("目标位置已有同名目录或文件");
+        } catch (error) {
+          if (error.code !== "ENOENT") throw error;
+        }
+        await fs.rename(source, destination);
+        for (const record of this.records.values())
+          if (record.path.startsWith(`${from}/`))
+            record.path = to + record.path.slice(from.length);
+        return this.snapshot();
+      });
+    this.queue = task;
+    return task;
+  }
+  deleteFolder(folder) {
+    const task = this.queue
+      .catch(() => {})
+      .then(async () => {
+        if (!folder) throw new Error("不能删除笔记空间根目录");
+        const source = await this.resolve(folder);
+        const trash = await this.resolve(".ymarkdowng-trash", true, true);
+        await fs.rename(
+          source,
+          path.join(
+            trash,
+            `${Date.now()}-${randomUUID().slice(0, 8)}-${path.basename(folder)}`,
+          ),
+        );
+        for (const [id, record] of this.records)
+          if (record.path.startsWith(`${folder}/`)) this.records.delete(id);
+        return this.snapshot();
+      });
+    this.queue = task;
+    return task;
+  }
 }
 module.exports = { NativeStore };

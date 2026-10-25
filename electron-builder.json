@@ -1,7 +1,9 @@
 {
   "appId": "io.github.okazaki-yumemi.ymarkdowng",
   "productName": "YMarkdownG",
-  "directories": { "output": "release" },
+  "directories": {
+    "output": "release"
+  },
   "files": [
     "dist/**/*",
     "electron/**/*",
@@ -12,16 +14,49 @@
   "asar": true,
   "electronDist": "node_modules/electron/dist",
   "npmRebuild": false,
+  "publish": [
+    {
+      "provider": "github",
+      "owner": "Okazaki-Yumemi",
+      "repo": "YMarkdownG",
+      "releaseType": "release"
+    }
+  ],
   "win": {
     "icon": "public/favicon.ico",
-    "target": [{ "target": "portable", "arch": ["x64"] }],
+    "target": [
+      {
+        "target": "portable",
+        "arch": ["x64"]
+      },
+      {
+        "target": "nsis",
+        "arch": ["x64"]
+      }
+    ],
     "artifactName": "YMarkdownG-${version}-Windows-${arch}.${ext}"
   },
-  "portable": { "requestExecutionLevel": "user" },
+  "portable": {
+    "requestExecutionLevel": "user"
+  },
   "nsis": {
     "oneClick": false,
     "allowToChangeInstallationDirectory": true,
     "createDesktopShortcut": true,
     "artifactName": "YMarkdownG-${version}-Setup-${arch}.${ext}"
+  },
+  "mac": {
+    "icon": "public/icon-512.png",
+    "category": "public.app-category.productivity",
+    "identity": null,
+    "target": ["dmg", "zip"],
+    "artifactName": "YMarkdownG-${version}-macOS-${arch}.${ext}"
+  },
+  "linux": {
+    "icon": "public/icon-512.png",
+    "category": "Office",
+    "target": ["AppImage"],
+    "artifactName": "YMarkdownG-${version}-Linux-${arch}.${ext}",
+    "maintainer": "Okazaki-Yumemi"
   }
 }

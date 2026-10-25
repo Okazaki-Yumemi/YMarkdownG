@@ -56,6 +56,9 @@ import "./neovim.css";
 import "./editor-motion.css";
 import { DesktopWorkspace } from "./desktop";
 import { editorMotion } from "./editor-motion";
+import { FolderContextMenu } from "./FolderContextMenu";
+import "./folder-menu.css";
+import { UpdatesPanel } from "./UpdatesPanel";
 
 type Note = {
   id: string;
@@ -213,6 +216,25 @@ function App() {
   );
   const [folderDialog, setFolderDialog] = useState(false);
   const [folderName, setFolderName] = useState("");
+  const [folderParent, setFolderParent] = useState("");
+  const [folderMenu, setFolderMenu] = useState<{
+    folder: string;
+    x: number;
+    y: number;
+  } | null>(null);
+  const folderTrigger = useRef<HTMLButtonElement | null>(null);
+  const [folderOperation, setFolderOperation] = useState<{
+    type: "rename" | "move" | "delete";
+    folder: string;
+  } | null>(null);
+  const [operationName, setOperationName] = useState("");
+  const [operationParent, setOperationParent] = useState("");
+  const [folderBusy, setFolderBusy] = useState(false);
+  const structureTask = useRef<Promise<boolean> | null>(null);
+  const dragEntry = useRef<{ kind: "folder" | "note"; id: string } | null>(
+    null,
+  );
+  const [dropTarget, setDropTarget] = useState<string | null>(null);
   const [noteDialog, setNoteDialog] = useState(false);
   const [newTitle, setNewTitle] = useState("");
   const [targetFolder, setTargetFolder] = useState("");
@@ -231,6 +253,19 @@ function App() {
   const imageRef = useRef<HTMLInputElement>(null);
   const preview = useRef<HTMLDivElement>(null);
   const note = notes.find((n) => n.id === activeId) || notes[0];
+  useEffect(() => {
+    if (workspace instanceof DesktopWorkspace && note) {
+      const file = workspace.pathFor(note.id);
+      if (file) {
+        try {
+          localStorage.setItem(
+            `ymg-active:${workspace.fullPath}`,
+            JSON.stringify(file),
+          );
+        } catch {}
+      }
+    }
+  }, [note?.id, workspace, diskStatus]);
   const patch = (values: Partial<Preferences>) =>
     setPrefs((p) => ({ ...p, ...values }));
   const notify = (message: string) => setToast(message);
@@ -261,7 +296,14 @@ function App() {
         setWorkspace(new DesktopWorkspace(data));
         setNotes(data.notes);
         setFolders(data.folders);
-        setActiveId(data.notes[0]?.id || "");
+        setActiveId(
+          data.notes.find(
+            (n) =>
+              data.paths[n.id] === read<string>(`ymg-active:${data.root}`, ""),
+          )?.id ||
+            data.notes[0]?.id ||
+            "",
+        );
       })
       .catch((error) => {
         if (!cancelled)
@@ -282,6 +324,7 @@ function App() {
       clearTimeout(diskTimer.current);
       void (async () => {
         try {
+          await structureTask.current;
           if (workspace) await workspace.save(notesRef.current);
           window.desktop!.flushed(true);
         } catch (error) {
@@ -359,7 +402,14 @@ function App() {
         setWorkspace(new DesktopWorkspace(data));
         setNotes(data.notes);
         setFolders(data.folders);
-        setActiveId(data.notes[0]?.id || "");
+        setActiveId(
+          data.notes.find(
+            (n) =>
+              data.paths[n.id] === read<string>(`ymg-active:${data.root}`, ""),
+          )?.id ||
+            data.notes[0]?.id ||
+            "",
+        );
         setFilter("all");
         setQuery("");
         setWorkspaceMenu(false);
@@ -427,7 +477,8 @@ function App() {
       return;
     }
     try {
-      const folder = cleanFolder(folderName);
+      const child = cleanFolder(folderName);
+      const folder = folderParent ? `${folderParent}/${child}` : child;
       if (workspace) await workspace.createFolder(folder);
       const parts = folder.split("/");
       setFolders((fs) => [
@@ -439,9 +490,136 @@ function App() {
       setFilter(folder);
       setFolderDialog(false);
       setFolderName("");
+      setFolderParent("");
       notify(`已创建目录 ${folder}`);
     } catch (e) {
       notify((e as Error).message);
+    }
+  }
+  function openFolderDialog(parent = "") {
+    setFolderParent(parent);
+    setFolderName("");
+    setFolderMenu(null);
+    setFolderDialog(true);
+  }
+  function openFolderOperation(
+    type: "rename" | "move" | "delete",
+    folder: string,
+  ) {
+    setFolderMenu(null);
+    setOperationName(folder.split("/").pop()!);
+    setOperationParent(folder.split("/").slice(0, -1).join("/"));
+    setFolderOperation({ type, folder });
+  }
+  function changeFolder(from: string, to?: string) {
+    const task = performFolderChange(from, to);
+    structureTask.current = task;
+    return task;
+  }
+  async function performFolderChange(from: string, to?: string) {
+    if (folderBusy) return false;
+    try {
+      setFolderBusy(true);
+      clearTimeout(diskTimer.current);
+      ++diskVersion.current;
+      if (workspace) await workspace.save(notesRef.current);
+      setDiskStatus("saved");
+      window.desktop?.setDirty(true);
+      if (to === from) {
+        setFolderOperation(null);
+        return true;
+      }
+      if (to && to.toLowerCase().startsWith(`${from.toLowerCase()}/`))
+        throw new Error("不能将目录移入自身或子目录");
+      if (to && folders.includes(to)) throw new Error("目标位置已有同名目录");
+      if (workspace instanceof DesktopWorkspace) {
+        if (to) await workspace.moveFolder(from, to);
+        else await workspace.deleteFolder(from);
+      } else if (workspace)
+        throw new Error("目录重命名、移动与回收请使用桌面版");
+      const inside = (value: string) =>
+        value === from || value.startsWith(`${from}/`);
+      setFolders((fs) =>
+        to
+          ? fs.map((f) => (inside(f) ? to + f.slice(from.length) : f))
+          : fs.filter((f) => !inside(f)),
+      );
+      const nextNotes = to
+        ? notesRef.current.map((n) =>
+            inside(n.folder)
+              ? { ...n, folder: to + n.folder.slice(from.length) }
+              : n,
+          )
+        : notesRef.current.filter((n) => !inside(n.folder));
+      notesRef.current = nextNotes;
+      setNotes(nextNotes);
+      setFilter(to || "all");
+      setFolderOperation(null);
+      setDiskStatus("saved");
+      setDiskError("");
+      window.desktop?.setDirty(false);
+      notify(
+        to ? "目录已更新" : workspace ? "目录已移入回收目录" : "目录已删除",
+      );
+      return true;
+    } catch (error) {
+      notify((error as Error).message);
+      return false;
+    } finally {
+      setFolderBusy(false);
+    }
+  }
+  function startDrag(
+    event: React.DragEvent,
+    kind: "folder" | "note",
+    id: string,
+  ) {
+    dragEntry.current = { kind, id };
+    event.dataTransfer.setData(
+      "application/x-ymg-entry",
+      JSON.stringify({ kind, id }),
+    );
+    event.dataTransfer.effectAllowed = "move";
+    setFolderMenu(null);
+  }
+  function validDrop(parent: string) {
+    const entry = dragEntry.current;
+    if (!entry || folderBusy) return false;
+    if (entry.kind === "folder")
+      return (
+        parent !== entry.id &&
+        !parent.toLowerCase().startsWith(`${entry.id.toLowerCase()}/`) &&
+        parent !== entry.id.split("/").slice(0, -1).join("/")
+      );
+    return notes.find((n) => n.id === entry.id)?.folder !== parent;
+  }
+  function dragOver(event: React.DragEvent, parent: string) {
+    if (validDrop(parent)) {
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "move";
+      setDropTarget(parent);
+    }
+  }
+  function dropInto(event: React.DragEvent, parent: string) {
+    event.preventDefault();
+    event.stopPropagation();
+    const entry = dragEntry.current;
+    const valid = validDrop(parent);
+    dragEntry.current = null;
+    setDropTarget(null);
+    if (!entry || !valid) return;
+    if (entry.kind === "folder")
+      void changeFolder(
+        entry.id,
+        [parent, entry.id.split("/").pop()].filter(Boolean).join("/"),
+      );
+    else {
+      setNotes((ns) =>
+        ns.map((n) =>
+          n.id === entry.id ? { ...n, folder: parent, updated: Date.now() } : n,
+        ),
+      );
+      setFilter(parent || "all");
     }
   }
   useEffect(() => {
@@ -501,7 +679,10 @@ function App() {
     setQuery("");
     setFilter(targetFolder || "all");
     setNoteDialog(false);
-    setTimeout(() => editor.current?.view?.focus(), 100);
+    requestAnimationFrame(() => {
+      if (!document.querySelector("[role=menu], .modal-backdrop"))
+        editor.current?.view?.focus();
+    });
   }
   function exportNote() {
     if (!note) return;
@@ -628,13 +809,21 @@ function App() {
       )
     )
       return notify("请选择 JPG、PNG、WebP 或 GIF 图片");
-    if (file.size > 3 * 1024 * 1024)
-      return notify("请选择小于 3 MB 的背景图片");
     const reader = new FileReader();
     reader.onload = () =>
       patch({ image: String(reader.result), background: "custom" });
     reader.onerror = () => notify("图片读取失败");
     reader.readAsDataURL(file);
+  }
+  function selectBackground() {
+    if (window.desktop)
+      void window.desktop
+        .chooseBackground()
+        .then((image) => {
+          if (image) patch({ image, background: "custom" });
+        })
+        .catch((error) => notify(`背景读取失败：${error.message}`));
+    else imageRef.current?.click();
   }
   const html = useMemo(
     () =>
@@ -834,19 +1023,69 @@ function App() {
           </nav>
           <div className="section-label">
             EXPLORER / 目录
-            <button title="新建目录" onClick={() => setFolderDialog(true)}>
+            <button title="新建目录" onClick={() => openFolderDialog()}>
               <Plus size={15} />
             </button>
           </div>
           <div className="folders">
+            <button
+              className={`root-drop ${dropTarget === "" ? "drop-target" : ""}`}
+              aria-label="笔记空间根目录"
+              onClick={() => setFilter("all")}
+              onDragOver={(e) => dragOver(e, "")}
+              onDrop={(e) => dropInto(e, "")}
+              onDragLeave={() => setDropTarget(null)}
+            >
+              <FolderOpen size={16} />
+              <span>/ 根目录</span>
+            </button>
             {Array.from(new Set([...folders, ...notes.map((n) => n.folder)]))
               .filter(Boolean)
               .sort()
               .map((f) => (
                 <button
                   key={f}
-                  className={filter === f ? "selected" : ""}
+                  aria-label={`目录 ${f}`}
+                  className={`${filter === f ? "selected" : ""} ${dropTarget === f ? "drop-target" : ""}`}
+                  draggable={!folderBusy}
+                  onDragStart={(e) => startDrag(e, "folder", f)}
+                  onDragEnd={() => {
+                    dragEntry.current = null;
+                    setDropTarget(null);
+                  }}
+                  onDragOver={(e) => dragOver(e, f)}
+                  onDrop={(e) => dropInto(e, f)}
+                  onDragLeave={(e) => {
+                    if (!e.currentTarget.contains(e.relatedTarget as Node))
+                      setDropTarget(null);
+                  }}
                   onClick={() => setFilter(f)}
+                  onContextMenu={(event) => {
+                    event.preventDefault();
+                    folderTrigger.current = event.currentTarget;
+                    setFilter(f);
+                    setFolderMenu({
+                      folder: f,
+                      x: event.clientX,
+                      y: event.clientY,
+                    });
+                  }}
+                  onKeyDown={(event) => {
+                    if (
+                      event.key === "ContextMenu" ||
+                      (event.shiftKey && event.key === "F10")
+                    ) {
+                      event.preventDefault();
+                      folderTrigger.current = event.currentTarget;
+                      const rect = event.currentTarget.getBoundingClientRect();
+                      setFilter(f);
+                      setFolderMenu({
+                        folder: f,
+                        x: rect.left + 20,
+                        y: rect.bottom,
+                      });
+                    }
+                  }}
                 >
                   <FolderOpen size={16} />
                   <span
@@ -875,6 +1114,12 @@ function App() {
             {visible.map((n) => (
               <button
                 className={`note-card ${note?.id === n.id ? "active" : ""}`}
+                draggable={!folderBusy}
+                onDragStart={(e) => startDrag(e, "note", n.id)}
+                onDragEnd={() => {
+                  dragEntry.current = null;
+                  setDropTarget(null);
+                }}
                 key={n.id}
                 onClick={() => setActiveId(n.id)}
               >
@@ -1233,6 +1478,7 @@ function App() {
                   { id: "type", name: "排版" },
                   { id: "outline", name: "大纲" },
                   { id: "motion", name: "动效" },
+                  ...(window.desktop ? [{ id: "updates", name: "更新" }] : []),
                 ].map((t) => (
                   <button
                     key={t.id}
@@ -1244,6 +1490,7 @@ function App() {
                 ))}
               </div>
               <div className="settings-body">
+                {tab === "updates" && <UpdatesPanel />}
                 {tab === "motion" && (
                   <>
                     <div className="motion-intro">
@@ -1381,7 +1628,7 @@ function App() {
                           className={`background-option ${prefs.background === bg.id ? "active" : ""}`}
                           onClick={() =>
                             bg.id === "custom" && !prefs.image
-                              ? imageRef.current?.click()
+                              ? selectBackground()
                               : patch({ background: bg.id })
                           }
                         >
@@ -1411,7 +1658,7 @@ function App() {
                     </div>
                     <button
                       className="upload-background"
-                      onClick={() => imageRef.current?.click()}
+                      onClick={selectBackground}
                     >
                       <Upload size={14} />
                       上传背景图片<small>JPG / PNG</small>
@@ -1425,7 +1672,7 @@ function App() {
                       onChange={(v) => patch({ backgroundTransparency: v })}
                     />
                     <p className="background-help">
-                      0% 显示原图，100% 完全透明。图片最大 3 MB。
+                      0% 显示原图，100% 完全透明。图片无固定体积限制。
                     </p>
                     <Range
                       label="编辑区不透明度"
@@ -1633,6 +1880,25 @@ function App() {
           </form>
         </div>
       )}
+      {folderMenu && (
+        <FolderContextMenu
+          {...folderMenu}
+          onClose={(restoreFocus = false) => {
+            setFolderMenu(null);
+            if (restoreFocus) folderTrigger.current?.focus();
+          }}
+          onChild={() => openFolderDialog(folderMenu.folder)}
+          onNote={() => {
+            setNewTitle("");
+            setTargetFolder(folderMenu.folder);
+            setFolderMenu(null);
+            setNoteDialog(true);
+          }}
+          onRename={() => openFolderOperation("rename", folderMenu.folder)}
+          onMove={() => openFolderOperation("move", folderMenu.folder)}
+          onDelete={() => openFolderOperation("delete", folderMenu.folder)}
+        />
+      )}
       {folderDialog && (
         <div className="modal-backdrop">
           <form
@@ -1643,14 +1909,24 @@ function App() {
             }}
           >
             <FolderOpen size={25} />
-            <h2>创建笔记目录</h2>
-            <p>支持多级目录，例如：学习笔记/前端/React</p>
+            <h2>{folderParent ? "新建子目录" : "创建笔记目录"}</h2>
+            {folderParent ? (
+              <>
+                <p className="folder-parent">
+                  <small>父目录</small>
+                  {folderParent}/
+                </p>
+                <p>只需输入子目录名称，路径会自动补全。</p>
+              </>
+            ) : (
+              <p>支持多级目录，例如：学习笔记/前端/React</p>
+            )}
             <input
               autoFocus
               aria-label="目录路径"
               value={folderName}
               onChange={(e) => setFolderName(e.target.value)}
-              placeholder="输入目录路径"
+              placeholder={folderParent ? "例如：阅读笔记" : "输入目录路径"}
               required
             />
             <div>
@@ -1659,6 +1935,113 @@ function App() {
               </button>
               <button type="submit" className="primary">
                 创建目录
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+      {folderOperation && (
+        <div className="modal-backdrop">
+          <form
+            className="modal"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (folderOperation.type === "delete")
+                void changeFolder(folderOperation.folder);
+              else {
+                try {
+                  const name =
+                    folderOperation.type === "rename"
+                      ? cleanFolder(operationName)
+                      : folderOperation.folder.split("/").pop()!;
+                  if (name.includes("/"))
+                    throw new Error("目录名称不能包含路径分隔符");
+                  const parent =
+                    folderOperation.type === "rename"
+                      ? folderOperation.folder.split("/").slice(0, -1).join("/")
+                      : operationParent;
+                  void changeFolder(
+                    folderOperation.folder,
+                    [parent, name].filter(Boolean).join("/"),
+                  );
+                } catch (error) {
+                  notify((error as Error).message);
+                }
+              }
+            }}
+          >
+            <FolderOpen size={25} />
+            <h2>
+              {folderOperation.type === "rename"
+                ? "重命名目录"
+                : folderOperation.type === "move"
+                  ? "移动目录"
+                  : "删除目录"}
+            </h2>
+            <p className="folder-parent">
+              <small>当前目录</small>
+              {folderOperation.folder}
+            </p>
+            {folderOperation.type === "rename" && (
+              <input
+                autoFocus
+                required
+                aria-label="新目录名称"
+                value={operationName}
+                onChange={(e) => setOperationName(e.target.value)}
+              />
+            )}
+            {folderOperation.type === "move" && (
+              <>
+                <p>目标父目录</p>
+                <select
+                  aria-label="目标父目录"
+                  value={operationParent}
+                  onChange={(e) => setOperationParent(e.target.value)}
+                >
+                  <option value="">/ 根目录</option>
+                  {folders
+                    .filter(
+                      (f) =>
+                        f !== folderOperation.folder &&
+                        !f.startsWith(`${folderOperation.folder}/`),
+                    )
+                    .map((f) => (
+                      <option key={f} value={f}>
+                        {f}
+                      </option>
+                    ))}
+                </select>
+              </>
+            )}
+            {folderOperation.type === "delete" && (
+              <p>
+                该目录及所有子目录和文件将移入笔记空间的
+                .ymarkdowng-trash，可从文件管理器中恢复。
+              </p>
+            )}
+            <div>
+              <button
+                type="button"
+                disabled={folderBusy}
+                onClick={() => setFolderOperation(null)}
+              >
+                取消
+              </button>
+              <button
+                disabled={folderBusy}
+                className={
+                  folderOperation.type === "delete"
+                    ? "danger-button"
+                    : "primary"
+                }
+                type="submit"
+              >
+                {folderBusy
+                  ? "处理中…"
+                  : folderOperation.type === "delete"
+                    ? "移入回收目录"
+                    : "确认"}
               </button>
             </div>
           </form>

@@ -1,4 +1,5 @@
 import type { StoredNote } from "./storage";
+import type { UpdateState } from "./UpdatesPanel";
 export type DesktopData = {
   id: string;
   name: string;
@@ -11,6 +12,13 @@ declare global {
   interface Window {
     desktop?: {
       platform: string;
+      chooseBackground(): Promise<string | null>;
+      updateState(): Promise<UpdateState>;
+      checkUpdates(): Promise<UpdateState>;
+      downloadUpdate(): Promise<UpdateState>;
+      installUpdate(): Promise<void>;
+      automaticUpdates(value: boolean): Promise<UpdateState>;
+      onUpdate(callback: (state: UpdateState) => void): () => void;
       restore(): Promise<DesktopData>;
       open(): Promise<DesktopData | null>;
       save(
@@ -18,6 +26,15 @@ declare global {
         notes: StoredNote[],
       ): Promise<{ paths: Record<string, string> }>;
       createFolder(id: string, folder: string): Promise<void>;
+      moveFolder(
+        id: string,
+        from: string,
+        to: string,
+      ): Promise<{ paths: Record<string, string> }>;
+      deleteFolder(
+        id: string,
+        folder: string,
+      ): Promise<{ paths: Record<string, string> }>;
       exportNote(title: string, content: string): Promise<boolean>;
       reveal(id: string): Promise<void>;
       setDirty(value: boolean): void;
@@ -49,5 +66,11 @@ export class DesktopWorkspace {
   }
   createFolder(path: string) {
     return window.desktop!.createFolder(this.id, path);
+  }
+  async moveFolder(from: string, to: string) {
+    this.paths = (await window.desktop!.moveFolder(this.id, from, to)).paths;
+  }
+  async deleteFolder(folder: string) {
+    this.paths = (await window.desktop!.deleteFolder(this.id, folder)).paths;
   }
 }

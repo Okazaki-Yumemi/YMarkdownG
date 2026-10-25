@@ -10,6 +10,7 @@ const userData = path.join(run, "profile");
 const vault = path.join(run, "vault");
 await fs.mkdir(userData);
 await fs.mkdir(vault);
+await fs.mkdir(path.join(vault, "DeepInfer"));
 await fs.writeFile(
   path.join(userData, "workspace.json"),
   JSON.stringify({ root: vault }),
@@ -95,20 +96,132 @@ try {
   );
   await page.getByLabel("平滑光标", { exact: true }).check();
   await page.getByRole("button", { name: "背景", exact: true }).click();
-  await page
-    .locator("input[type=file]")
-    .nth(1)
-    .setInputFiles({
-      name: "background.png",
-      mimeType: "image/png",
-      buffer: Buffer.from(
+  const largeImage = path.join(run, "large-background.png");
+  await fs.writeFile(
+    largeImage,
+    Buffer.concat([
+      Buffer.from(
         "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jP1sAAAAASUVORK5CYII=",
         "base64",
       ),
+      Buffer.alloc(4 * 1024 * 1024),
+    ]),
+  );
+  await app.evaluate(({ dialog }, file) => {
+    dialog.showOpenDialog = async () => ({
+      canceled: false,
+      filePaths: [file],
     });
+  }, largeImage);
+  await page.getByRole("button", { name: /上传背景图片/ }).click();
+  await expect(page.locator(".background-layer")).toHaveAttribute(
+    "style",
+    /ymg-asset:/,
+  );
+  const backgrounds = await fs.readdir(path.join(userData, "backgrounds"));
+  expect(
+    (await fs.stat(path.join(userData, "backgrounds", backgrounds[0]))).size,
+  ).toBeGreaterThan(3 * 1024 * 1024);
+  expect(
+    await page.evaluate(() => localStorage.getItem("ymg-prefs").length),
+  ).toBeLessThan(2000);
   await page.getByLabel("背景图片透明度").fill("45");
   await page.getByLabel("编辑区不透明度").fill("70");
   await expect(page.locator(".background-layer")).toHaveCSS("opacity", "0.55");
+  await page
+    .getByRole("button", { name: "目录 DeepInfer", exact: true })
+    .click({ button: "right" });
+  await page.getByRole("menuitem", { name: "新建子目录" }).click();
+  await page.getByLabel("目录路径").fill("学习笔记");
+  await page.getByRole("button", { name: "创建目录", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "目录 DeepInfer/学习笔记", exact: true }),
+  ).toBeVisible();
+  expect(
+    (await fs.stat(path.join(vault, "DeepInfer", "学习笔记"))).isDirectory(),
+  ).toBe(true);
+  await page
+    .getByRole("button", { name: "目录 DeepInfer/学习笔记", exact: true })
+    .click({ button: "right" });
+  await page.getByRole("menuitem", { name: "在此新建笔记" }).click();
+  await expect(page.getByLabel("笔记存储目录")).toHaveValue(
+    "DeepInfer/学习笔记",
+  );
+  await page.getByLabel("笔记名称").fill("右键创建笔记");
+  await page.getByRole("button", { name: "创建笔记", exact: true }).click();
+  await expect
+    .poll(() =>
+      fs
+        .readFile(
+          path.join(vault, "DeepInfer", "学习笔记", "右键创建笔记.md"),
+          "utf8",
+        )
+        .catch(() => ""),
+    )
+    .toContain("# 右键创建笔记");
+  const context = async (folder, action) => {
+    await page
+      .getByRole("button", { name: `目录 ${folder}`, exact: true })
+      .click({ button: "right" });
+    await page.getByRole("menuitem", { name: action, exact: true }).click();
+  };
+  await context("DeepInfer/学习笔记", "重命名");
+  await page.getByLabel("新目录名称").fill("已改名");
+  await page.getByRole("button", { name: "确认", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "目录 DeepInfer/已改名", exact: true }),
+  ).toBeVisible();
+  await context("DeepInfer/已改名", "移动目录");
+  await page.getByLabel("目标父目录").selectOption("");
+  await page.getByRole("button", { name: "确认", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "目录 已改名", exact: true }),
+  ).toBeVisible();
+  await page
+    .getByRole("button", { name: "目录 已改名", exact: true })
+    .dragTo(page.getByRole("button", { name: "目录 DeepInfer", exact: true }));
+  await expect(
+    page.getByRole("button", { name: "目录 DeepInfer/已改名", exact: true }),
+  ).toBeVisible();
+  await page
+    .locator(".note-card")
+    .filter({ hasText: "右键创建笔记" })
+    .dragTo(page.getByRole("button", { name: "笔记空间根目录", exact: true }));
+  await expect
+    .poll(() =>
+      fs.readFile(path.join(vault, "右键创建笔记.md"), "utf8").catch(() => ""),
+    )
+    .toContain("右键创建笔记");
+  await context("DeepInfer/已改名", "删除目录");
+  await page.getByRole("button", { name: "移入回收目录", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "目录 DeepInfer/已改名", exact: true }),
+  ).toHaveCount(0);
+  expect(
+    (await fs.readdir(path.join(vault, ".ymarkdowng-trash"))).some((name) =>
+      name.endsWith("已改名"),
+    ),
+  ).toBe(true);
+  await page.getByRole("button", { name: "更新", exact: true }).click();
+  await expect(page.locator(".update-version")).toContainText("0.2.1");
+  await app.evaluate(({ net }) => {
+    const original = net.fetch;
+    net.fetch = (url, options) =>
+      String(url).includes("api.github.com")
+        ? Promise.resolve(
+            new Response(JSON.stringify({ tag_name: "v99.0.0" }), {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            }),
+          )
+        : original(url, options);
+  });
+  await page.getByRole("button", { name: "检查更新", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "打开新版下载页", exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: /^全部笔记/ }).click();
+  await page.locator(".note-card").filter({ hasText: "桌面测试" }).click();
   await page.locator(".cm-content").click();
   await page.keyboard.press("Control+End");
   await page.keyboard.type("\nCLOSE_FLUSH");

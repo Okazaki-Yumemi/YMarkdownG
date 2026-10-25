@@ -1,93 +1,109 @@
-# YMarkdownG Desktop
+<div align="center">
 
-独立桌面 Markdown 笔记软件，使用 Electron 运行，不需要打开浏览器或启动本地服务。界面参考 Neovim，保留即时预览、代码高亮与自定义背景。
+<img src="public/icon.svg" width="88" height="88" alt="YMarkdownG logo" />
 
-## 直接使用
+# YMarkdownG
 
-Windows x64 便携版：运行 `release/YMarkdownG-0.2.0-Windows-x64.exe`，无需安装 Node.js。也可以运行解包目录中的 `release/win-unpacked/YMarkdownG.exe`，解包目录的其他文件须一起保留。
+**让思考，自由生长。**
 
-首次启动自动创建并打开系统“文档”目录下的 `YMarkdownG` 文件夹。点击左上角笔记空间按钮，可通过系统对话框选择其他本地文件夹，之后启动会恢复该空间。工作区菜单可以在文件管理器中打开当前目录。
+一个可以随心定制的桌面 Markdown 笔记空间。<br/>
+Neovim 的视觉风格 · 即时预览 · 你的本地文件
 
-## 编辑和动效
+[![Release](https://img.shields.io/github/v/release/Okazaki-Yumemi/YMarkdownG?style=flat-square&color=7aa2f7)](https://github.com/Okazaki-Yumemi/YMarkdownG/releases/latest)
+[![Build](https://github.com/Okazaki-Yumemi/YMarkdownG/actions/workflows/release.yml/badge.svg)](https://github.com/Okazaki-Yumemi/YMarkdownG/actions/workflows/release.yml)
+![Desktop](https://img.shields.io/badge/desktop-Windows%20%7C%20macOS%20%7C%20Linux-bb9af7?style=flat-square)
 
-- Markdown 源码、分屏即时预览和阅读模式。
-- 代码块语法高亮、语言标记、行号和复制按钮；代码仅展示，不执行。
-- 标题大纲、全文搜索、收藏、Markdown 导入和系统另存为导出。
-- Neovim 风格块状光标，平滑跟随点击、方向键和跨行跳转，带短暂拖影。
-- 打字时提供光标亮度和轻微扩散光晕反馈，不人为延迟输入、不抖动整个页面。
-- 「外观 → 动效」可开关平滑光标、拖影，调整动画时长和反馈强度；强度设为 0 可关闭反馈。
-- 遵循系统“减少动态效果”设置；动画独立于文档 DOM，不改写文字或接管输入法。
-- 自定义主题、主题色、背景图片、图片透明度、编辑区不透明度、背景模糊、字体、字号、行高和页面宽度。背景面板的「上传背景图片」支持选择本地图片，透明度即时生效并随重启恢复。
+**[下载桌面版](https://github.com/Okazaki-Yumemi/YMarkdownG/releases/latest)** · [功能与演示](#功能与演示) · [开始使用](#开始使用) · [开发文档](docs/DEVELOPMENT.md)
 
-| 快捷键                 | 功能               |
-| ---------------------- | ------------------ |
-| Ctrl / Cmd + P         | 快速打开笔记       |
-| Ctrl / Cmd + S         | 立即保存到磁盘     |
-| Ctrl / Cmd + B / I     | 粗体 / 斜体        |
-| Ctrl / Cmd + Shift + F | 专注模式           |
-| Esc                    | 退出专注或关闭弹窗 |
+<br/>
 
-## 磁盘笔记空间
+<a href="docs/images/desktop.png"><img src="docs/images/desktop.png" width="1100" alt="真实桌面截图：本地目录、Markdown 源码、即时预览与外观设置" /></a>
 
-通过 EXPLORER 旁的 `+` 创建目录，支持 `学习笔记/前端/React` 这样的多级路径。新建笔记时选择名称和目录，编辑后约 500 ms 自动写入 `.md` 文件。退出时立即补写尚未保存的内容；写入失败会保留窗口并提示处理。
+<sub>真实桌面截图。代码、文字与自己的知识库，放在同一个空间。</sub>
 
-```text
-用户选择的笔记目录/
-├── 学习笔记/
-│   └── 前端/
-│       └── React/
-│           └── Hooks 学习.md
-├── 日常随记/
-│   └── 今日灵感.md
-└── .ymarkdowng-trash/   # 删除笔记的恢复副本
-```
+</div>
 
-- 同名新文件添加数字后缀，「更多操作 → 移动笔记」调整目录。
-- 临时文件加替换的写入方式；写入前核对原内容，外部冲突时暂停覆盖。
-- 删除先保存副本到 `.ymarkdowng-trash`。恢复时从文件管理器移回正常目录，然后重新打开空间。
-- 已有文件保留文件名，修改一级标题不会自动重命名磁盘文件。
-- 仅访问已打开空间，不跟随其中的符号链接或目录联接。
-- 外观设置与最近工作区保存在 Electron 用户数据目录。
+## 功能与演示
 
-## 开发与构建
+### 写作，也可以很有手感
 
-需要 Node.js 22.12+。默认开发入口打开独立桌面窗口：
+块状光标平滑跟随跨行跳转，留下短暂拖影。输入时的轻微光晕为敲击增加反馈，动画速度和强度都可以调整。
 
-```powershell
+<p align="center"><img src="docs/images/cursor.gif" width="560" alt="真实录制：平滑光标、跨行拖影与输入反馈" /></p>
+
+> 动图来自实际桌面程序录制。动效可单独关闭，并遵循系统的“减少动态效果”设置。
+
+### 你的目录，就是笔记的目录
+
+右键目录即可新建子目录、创建笔记、重命名、移动或删除。拖动笔记和目录，也能重新整理知识库。
+
+<p align="center"><img src="docs/images/folder-menu.png" width="760" alt="目录右键菜单：创建、重命名、移动与删除" /></p>
+
+文件以普通 `.md` 格式存储在你选择的文件夹中。删除会先保留恢复副本，检测到外部编辑时暂停覆盖。
+
+### 把这里，变成你的样子
+
+| 书写与阅读                  | 外观与氛围                       |
+| :-------------------------- | :------------------------------- |
+| 源码、分屏与阅读模式        | 深浅主题、自选主题色             |
+| 即时渲染 Markdown           | 自定义背景，无固定体积限制       |
+| 代码高亮、行号和复制        | 图片透明度、编辑区不透明度与模糊 |
+| 搜索、大纲与快速打开        | 字体、字号、行高与页面宽度       |
+| Markdown 导入导出和自动保存 | 专注模式、可调光标与输入动效     |
+
+## 开始使用
+
+1. 在 **[Releases](https://github.com/Okazaki-Yumemi/YMarkdownG/releases/latest)** 下载适合自己系统的版本。
+2. 从左上角选择笔记空间。首次启动默认打开系统“文档”下的 `YMarkdownG` 文件夹。
+3. 右键目录创建子目录或笔记，开始书写。内容自动保存到磁盘。
+
+| 系统                | 下载哪个文件                                        | 更新方式                                 |
+| :------------------ | :-------------------------------------------------- | :--------------------------------------- |
+| Windows x64         | `Setup-x64.exe` 安装版，或 `Windows-x64.exe` 便携版 | 安装版支持应用内更新；便携版提供新版提醒 |
+| macOS Apple Silicon | `macOS-arm64.dmg`                                   | 下载新版替换；同时提供 ZIP               |
+| macOS Intel         | `macOS-x64.dmg`                                     | 下载新版替换；同时提供 ZIP               |
+| Linux x64           | `Linux-x64.AppImage`，添加执行权限后运行            | AppImage 支持应用内更新                  |
+
+不需要安装 Node.js，也不需要打开浏览器。更新入口在 **外观 → 更新**，背景和动画在同一面板中调整。
+
+<details>
+<summary><b>常用快捷键</b></summary>
+
+| 快捷键                   | 功能               |
+| :----------------------- | :----------------- |
+| `Ctrl / Cmd + P`         | 快速打开笔记       |
+| `Ctrl / Cmd + S`         | 立即保存           |
+| `Ctrl / Cmd + B / I`     | 粗体 / 斜体        |
+| `Ctrl / Cmd + Shift + F` | 专注模式           |
+| `Esc`                    | 退出专注或关闭弹窗 |
+
+</details>
+
+<details>
+<summary><b>当前边界与发行说明</b></summary>
+
+- 当前参考 Neovim 视觉风格，尚未实现 Vim 模态操作或 Typora 式原位编辑。
+- Windows 和 macOS 发行包暂未代码签名，macOS 尚未公证，该版本 macOS 更新采用手动下载。
+- 跨版本自动安装流程尚未完成真实升级的端到端验证。
+- 尚无云同步、外部修改自动合并或插件系统；Markdown 相对路径图片尚未映射到笔记目录。
+- 磁盘笔记收藏目前仅在本次打开期间保留。空间最多读取 2000 篇、24 层目录，单篇笔记上限 5 MB。
+- 完整实现和限制见 [开发文档](docs/DEVELOPMENT.md)。
+
+</details>
+
+## 从源码运行
+
+需要 Node.js 22.12+。
+
+```bash
 npm install
 npm run dev
 ```
 
-```powershell
-npm start                  # 构建后运行桌面程序，无需 Vite 服务
-npm run package:win        # Windows x64 便携 exe
-npm run package:installer  # 可选 Windows 安装程序
-npm run build              # TypeScript 检查和界面构建
-npm test                   # 原生磁盘测试 + Chromium 回归测试
-npm run test:desktop       # 真实 Electron 测试（需要先 build）
-node scripts/test-desktop.mjs release/win-unpacked/YMarkdownG.exe
-node scripts/test-portable.mjs # 最终单文件 EXE 的启动、写入与背景验证
-```
+默认打开独立桌面窗口。构建、打包与测试命令见 **[开发文档](docs/DEVELOPMENT.md)**。
 
-首次安装依赖需要下载 Electron 二进制。如果官方源不可达，可仅为当前终端设置 `ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/`，再运行 `node node_modules/electron/install.js`；下载使用 Electron 包内校验值验证。
-
-打包组件下载超时时，可为当前终端设置 `ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/` 后重新打包，组件仍按内置校验值验证。
-
-`npm run dev:web` 仅保留作界面开发和回归测试使用，桌面发行版从本地资源加载。构建产物位于 `release/`，不提交二进制到 Git。
-
-## 实现与图标
-
-图标为折角文档与 `YMG` 字样：`public/icon.svg`、`public/icon-512.png`、`public/icon-192.png`、`public/favicon.ico`。
-
-Electron 主进程负责原生对话框与磁盘操作，隔离的 preload 提供有限接口。渲染进程关闭 Node 集成并启用沙箱；Markdown HTML 经 DOMPurify 清理。界面使用 React、TypeScript、CodeMirror 6、marked、highlight.js，光标动画基于 ViewPlugin 和 requestAnimationFrame。
-
-## 当前边界
-
-- 参考 Neovim 视觉风格，尚未实现 Vim 模态操作；即时渲染采用分屏，尚未实现 Typora 式原位编辑。
-- 当前验证平台为 Windows x64，安装包未做代码签名。
-- 单个空间最多读取 2000 篇、24 层目录，单篇笔记上限 5 MB。跳过隐藏目录和 `node_modules`。
-- 背景图片支持 JPG、PNG、WebP、GIF，最大 3 MB。
-- 暂无文件监听、外部修改合并、云同步或插件系统。磁盘空间收藏目前仅在本次打开期间保留。
-- Markdown 相对路径图片尚未映射到磁盘目录，可使用 HTTPS 图片地址。
-
-测试覆盖文件创建、并发保存、移动、回收、重名、外部冲突和路径约束；桌面测试覆盖本地页面加载、接口隔离、光标实际移动、中文 IME、动效设置、退出补写及重启恢复。
+<div align="center">
+<br/>
+<sub>Electron · React · TypeScript · CodeMirror 6 · marked · highlight.js</sub><br/>
+<sub>让工具退后一步，让思考走远一点。</sub>
+</div>

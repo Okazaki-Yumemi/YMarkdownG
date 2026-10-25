@@ -1,5 +1,52 @@
 import { test, expect } from "@playwright/test";
 
+test("folder context menus inherit parents and support keyboard dismissal", async ({
+  page,
+}) => {
+  await page.goto("/");
+  const parent = page.getByRole("button", {
+    name: "目录 开始使用",
+    exact: true,
+  });
+  await parent.click({ button: "right" });
+  await expect(page.getByRole("menu", { name: "目录操作" })).toBeVisible();
+  await page.getByRole("menuitem", { name: "新建子目录" }).click();
+  await expect(page.locator(".folder-parent")).toContainText("开始使用/");
+  await page.getByLabel("目录路径").fill("学习/Markdown");
+  await page.getByRole("button", { name: "创建目录", exact: true }).click();
+  const child = page.getByRole("button", {
+    name: "目录 开始使用/学习/Markdown",
+    exact: true,
+  });
+  await expect(child).toBeVisible();
+  await child.click({ button: "right" });
+  await page.getByRole("menuitem", { name: "在此新建笔记" }).click();
+  await expect(page.getByLabel("笔记存储目录")).toHaveValue(
+    "开始使用/学习/Markdown",
+  );
+  await page.getByLabel("笔记名称").fill("下级目录中的笔记");
+  await page.getByRole("button", { name: "创建笔记", exact: true }).click();
+  await expect(page.locator(".markdown-body h1")).toHaveText(
+    "下级目录中的笔记",
+  );
+  await child.focus();
+  await page.keyboard.press("Shift+F10");
+  await expect(page.getByRole("menu")).toBeVisible();
+  await page.keyboard.press("ArrowDown");
+  await expect(
+    page.getByRole("menuitem", { name: "在此新建笔记" }),
+  ).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("menu")).toHaveCount(0);
+  await expect(child).toBeFocused();
+  await parent.click({ button: "right" });
+  await page.getByLabel("搜索笔记").click();
+  await expect(page.getByRole("menu")).toHaveCount(0);
+  await page.getByTitle("新建目录", { exact: true }).click();
+  await expect(page.locator(".folder-parent")).toHaveCount(0);
+  await expect(page.getByLabel("目录路径")).toHaveValue("");
+});
+
 test("live Markdown, highlighted code, persistence, export and sanitization", async ({
   page,
 }) => {

@@ -24,8 +24,11 @@ const server = net.createServer();
 await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
 const port = server.address().port;
 await new Promise((resolve) => server.close(resolve));
+const version = JSON.parse(
+  await fs.readFile(new URL("../package.json", import.meta.url), "utf8"),
+).version;
 const executable = path.resolve(
-  process.argv[2] || "release/YMarkdownG-0.2.0-Windows-x64.exe",
+  process.argv[2] || `release/YMarkdownG-${version}-Windows-x64.exe`,
 );
 const env = { ...process.env, YMG_USER_DATA: profile };
 delete env.ELECTRON_RUN_AS_NODE;

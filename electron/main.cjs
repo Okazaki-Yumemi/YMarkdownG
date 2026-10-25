@@ -5,11 +5,26 @@ const {
   dialog,
   shell,
   Menu,
+  protocol,
+  net,
 } = require("electron");
 const fs = require("node:fs/promises");
 const path = require("node:path");
 const { randomUUID } = require("node:crypto");
+const { pathToFileURL } = require("node:url");
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: "ymg-asset",
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      stream: true,
+    },
+  },
+]);
 const { NativeStore } = require("./native-store.cjs");
+const { createUpdates } = require("./updater.cjs");
 if (process.env.YMG_USER_DATA)
   app.setPath("userData", path.resolve(process.env.YMG_USER_DATA));
 const stores = new Map();
@@ -17,6 +32,8 @@ let win;
 let dirty = false;
 let closing = false;
 let waiting = false;
+let updates;
+let installPending = false;
 const configPath = () => path.join(app.getPath("userData"), "workspace.json");
 const authorized = (event) => {
   if (
@@ -71,7 +88,36 @@ register("workspace:open", async () => {
 });
 register("workspace:save", (id, notes) => getStore(id).save(notes));
 register("workspace:mkdir", (id, folder) => getStore(id).createFolder(folder));
+register("workspace:move-folder", (id, from, to) =>
+  getStore(id).moveFolder(from, to),
+);
+register("workspace:delete-folder", (id, folder) =>
+  getStore(id).deleteFolder(folder),
+);
+register("background:choose", async () => {
+  const result = await dialog.showOpenDialog(win, {
+    title: "选择背景图片",
+    properties: ["openFile"],
+    filters: [
+      { name: "图片", extensions: ["png", "jpg", "jpeg", "webp", "gif"] },
+    ],
+  });
+  if (result.canceled) return null;
+  const extension = path.extname(result.filePaths[0]).toLowerCase();
+  if (![".png", ".jpg", ".jpeg", ".webp", ".gif"].includes(extension))
+    throw new Error("请选择支持的图片格式");
+  const dir = path.join(app.getPath("userData"), "backgrounds");
+  await fs.mkdir(dir, { recursive: true });
+  const name = `${randomUUID()}${extension}`;
+  await fs.copyFile(result.filePaths[0], path.join(dir, name));
+  return `ymg-asset://background/${name}`;
+});
 register("workspace:reveal", (id) => shell.openPath(getStore(id).root));
+register("updates:state", () => updates.snapshot());
+register("updates:check", () => updates.check());
+register("updates:download", () => updates.download());
+register("updates:automatic", (value) => updates.setAutomatic(!!value));
+register("updates:install", () => updates.requestInstall());
 register("note:export", async (title, content) => {
   if (
     typeof title !== "string" ||
@@ -99,8 +145,10 @@ ipcMain.on("document:flushed", async (event, ok, error) => {
   if (ok) {
     dirty = false;
     closing = true;
-    win.close();
+    if (installPending) updates.install();
+    else win.close();
   } else {
+    installPending = false;
     const result = await dialog.showMessageBox(win, {
       type: "warning",
       title: "笔记尚未保存",
@@ -117,7 +165,29 @@ ipcMain.on("document:flushed", async (event, ok, error) => {
   }
 });
 app.whenReady().then(() => {
-  Menu.setApplicationMenu(null);
+  protocol.handle("ymg-asset", (request) => {
+    const url = new URL(request.url);
+    const name = url.pathname.slice(1);
+    if (
+      url.hostname !== "background" ||
+      !/^[0-9a-f-]{36}\.(png|jpe?g|webp|gif)$/.test(name)
+    )
+      return new Response("Not found", { status: 404 });
+    return net.fetch(
+      pathToFileURL(path.join(app.getPath("userData"), "backgrounds", name))
+        .href,
+    );
+  });
+  Menu.setApplicationMenu(
+    process.platform === "darwin"
+      ? Menu.buildFromTemplate([
+          { role: "appMenu" },
+          { role: "editMenu" },
+          { role: "viewMenu" },
+          { role: "windowMenu" },
+        ])
+      : null,
+  );
   win = new BrowserWindow({
     width: 1500,
     height: 960,
@@ -137,12 +207,20 @@ app.whenReady().then(() => {
     },
   });
   win.on("close", (event) => {
+    if (!updates) return;
     if (!dirty || closing) return;
     event.preventDefault();
     if (!waiting) {
       waiting = true;
       win.webContents.send("document:flush");
     }
+  });
+  updates = createUpdates(app, win, () => {
+    if (waiting) return;
+    installPending = true;
+    waiting = true;
+    dirty = true;
+    win.webContents.send("document:flush");
   });
   win.webContents.on("will-prevent-unload", (event) => {
     if (closing) event.preventDefault();

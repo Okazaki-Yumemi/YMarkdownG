@@ -17,6 +17,42 @@ const note = (id, content = "# 测试\n\n中文正文", folder = "知识库/前�
   updated: Date.now(),
   starred: false,
 });
+test("directory rename, move and recycle preserve whole subtrees and tracked paths", async () => {
+  const { dir, store } = await fixture();
+  await store.load();
+  await store.save([note("a")]);
+  await store.createFolder("目标");
+  await fs.writeFile(
+    path.join(dir, "知识库", "attachment.bin"),
+    Buffer.from([1, 2, 3]),
+  );
+  await assert.rejects(
+    store.moveFolder("知识库", "知识库/前端/循环"),
+    /子目录/,
+  );
+  await assert.rejects(store.moveFolder("知识库", "目标"), /同名/);
+  await store.moveFolder("知识库", "整理");
+  await store.save([note("a", "改名后编辑", "整理/前端")]);
+  await store.moveFolder("整理", "目标/整理");
+  assert.equal(
+    await fs.readFile(path.join(dir, "目标/整理/前端/测试.md"), "utf8"),
+    "改名后编辑",
+  );
+  assert.equal(store.snapshot().paths.a, "目标/整理/前端/测试.md");
+  await store.deleteFolder("目标/整理");
+  assert.equal(store.snapshot().paths.a, undefined);
+  const entries = await fs.readdir(path.join(dir, ".ymarkdowng-trash"));
+  const recovered = path.join(dir, ".ymarkdowng-trash", entries[0]);
+  assert.equal(
+    await fs.readFile(path.join(recovered, "前端/测试.md"), "utf8"),
+    "改名后编辑",
+  );
+  assert.deepEqual(
+    await fs.readFile(path.join(recovered, "attachment.bin")),
+    Buffer.from([1, 2, 3]),
+  );
+  await assert.rejects(store.deleteFolder(""), /根目录/);
+});
 test("native save creates nested Markdown files, avoids collisions and persists after reopening", async () => {
   const { dir, store } = await fixture();
   await store.load();
