@@ -1,0 +1,43 @@
+name: Publish Verified Artifacts
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/publish-existing.yml']
+  workflow_dispatch:
+    inputs:
+      tag: { description: 'Existing version tag', required: true, default: 'v0.2.1' }
+      run_id: { description: 'Successful platform build run ID', required: true, default: '40195775326' }
+permissions:
+  contents: write
+  actions: read
+concurrency:
+  group: publish-verified-desktop
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ inputs.tag || 'v0.2.1' }}
+      SOURCE_RUN: ${{ inputs.run_id || '40195775326' }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v5
+        with: { fetch-depth: 0 }
+      - name: Verify artifact source commit and platform results
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag_sha="$(git rev-parse "$RELEASE_TAG^{commit}")"
+          source_sha="$(gh api "repos/$GH_REPO/actions/runs/$SOURCE_RUN" --jq .head_sha)"
+          test "$tag_sha" = "$source_sha"
+          gh api "repos/$GH_REPO/actions/runs/$SOURCE_RUN/jobs" --jq '[.jobs[] | select(.name | startswith("build "))] | length == 4 and all(.conclusion == "success")' | grep -qx true
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: desktop-*
+          path: release
+          merge-multiple: true
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ env.SOURCE_RUN }}
+      - name: Verify and publish
+        run: bash scripts/publish-release.sh

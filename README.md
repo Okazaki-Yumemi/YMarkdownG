@@ -62,7 +62,7 @@ Neovim 的视觉风格 · 即时预览 · 你的本地文件
 | Windows x64         | `Setup-x64.exe` 安装版，或 `Windows-x64.exe` 便携版 | 安装版支持应用内更新；便携版提供新版提醒 |
 | macOS Apple Silicon | `macOS-arm64.dmg`                                   | 下载新版替换；同时提供 ZIP               |
 | macOS Intel         | `macOS-x64.dmg`                                     | 下载新版替换；同时提供 ZIP               |
-| Linux x64           | `Linux-x64.AppImage`，添加执行权限后运行            | AppImage 支持应用内更新                  |
+| Linux x64           | `Linux-x86_64.AppImage`，添加执行权限后运行            | AppImage 支持应用内更新                  |
 
 不需要安装 Node.js，也不需要打开浏览器。更新入口在 **外观 → 更新**，背景和动画在同一面板中调整。
 
