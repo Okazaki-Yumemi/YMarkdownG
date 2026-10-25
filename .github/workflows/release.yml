@@ -1,0 +1,74 @@
+name: Publish Windows Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install dependencies and Electron runtime
+        run: |
+          npm ci
+          if ($LASTEXITCODE -ne 0) { throw 'Dependency installation failed' }
+          node -e "require('electron')"
+          if ($LASTEXITCODE -ne 0) { throw 'Electron runtime installation failed' }
+      - name: Validate version and native storage
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          $version = node -p "require('./package.json').version"
+          if ($env:RELEASE_TAG -ne "v$version") { throw 'Tag does not match package.json version' }
+          node --test tests/native-store.test.cjs
+          if ($LASTEXITCODE -ne 0) { throw 'Native storage tests failed' }
+      - name: Build Windows portable executable
+        run: |
+          npm run package:win
+          if ($LASTEXITCODE -ne 0) { throw 'Windows build failed' }
+      - name: Create checksum and publish complete release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          $version = node -p "require('./package.json').version"
+          $artifact = Get-Item "release/YMarkdownG-$version-Windows-x64.exe"
+          $hash = (Get-FileHash -LiteralPath $artifact.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash *$($artifact.Name)" | Set-Content -LiteralPath release/SHA256SUMS.txt -Encoding utf8NoBOM
+          $notes = ".github/release-notes/$($env:RELEASE_TAG).md"
+          if (!(Test-Path -LiteralPath $notes)) { throw "Missing release notes: $notes" }
+          $existingJson = gh release view $env:RELEASE_TAG --json isDraft 2>$null
+          if ($LASTEXITCODE -eq 0) {
+            $existing = $existingJson | ConvertFrom-Json
+            if (!$existing.isDraft) { throw 'This version is already published; existing releases are never overwritten' }
+          } else {
+            gh release create $env:RELEASE_TAG --verify-tag --draft --title "YMarkdownG $($env:RELEASE_TAG) · Windows 桌面版" --notes-file $notes
+            if ($LASTEXITCODE -ne 0) { throw 'Draft release creation failed' }
+          }
+          gh release upload $env:RELEASE_TAG $artifact.FullName release/SHA256SUMS.txt --clobber
+          if ($LASTEXITCODE -ne 0) { throw 'Release asset upload failed' }
+          $release = gh release view $env:RELEASE_TAG --json assets | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0) { throw 'Release verification failed' }
+          $uploaded = @($release.assets | Where-Object { $_.name -eq $artifact.Name })
+          $checksums = @($release.assets | Where-Object { $_.name -eq 'SHA256SUMS.txt' })
+          if ($uploaded.Count -ne 1 -or $uploaded[0].size -ne $artifact.Length -or $checksums.Count -ne 1) { throw 'Release assets are incomplete' }
+          gh release edit $env:RELEASE_TAG --draft=false --latest
+          if ($LASTEXITCODE -ne 0) { throw 'Release publication failed' }
