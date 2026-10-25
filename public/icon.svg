@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" role="img" aria-label="YMarkdownG 文档图标">
+ <path d="M54 18h105l49 49v155a16 16 0 0 1-16 16H54a16 16 0 0 1-16-16V34a16 16 0 0 1 16-16Z" fill="#f0f3ff" stroke="#7aa2f7" stroke-width="7" stroke-linejoin="round"/>
+ <path d="M159 18v36a13 13 0 0 0 13 13h36" fill="#c8d6f8" stroke="#7aa2f7" stroke-width="7" stroke-linejoin="round"/>
+ <text x="123" y="156" font-family="Arial,Helvetica,sans-serif" font-weight="800" font-size="56" letter-spacing="-3" text-anchor="middle" fill="#526eaf">YMG</text>
+ <path d="M68 185h110M68 202h72" stroke="#c0cde8" stroke-width="6" stroke-linecap="round"/>
+</svg>
