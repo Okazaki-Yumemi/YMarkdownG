@@ -748,3 +748,60 @@
   display: inline-block;
   vertical-align: middle;
 }
+
+.rich-syntax {
+  color: var(--muted);
+  font:
+    0.85em ui-monospace,
+    Consolas,
+    monospace;
+  opacity: 0.65;
+  cursor: pointer;
+}
+.rich-syntax::before {
+  content: attr(data-syntax);
+}
+.rich-document:not(:focus-within) .rich-syntax {
+  display: none;
+}
+.rich-surface {
+  position: relative;
+}
+.block-source-editor {
+  position: absolute;
+  inset-inline: 0;
+  z-index: 5;
+  padding: 8px;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  background: var(--panel);
+  box-shadow: 0 6px 20px #0003;
+  max-height: 70vh;
+  overflow: auto;
+}
+.block-source-editor textarea {
+  display: block;
+  width: 100%;
+  resize: vertical;
+  border: 0;
+  outline: none;
+  padding: 8px;
+  color: var(--text);
+  background: var(--base);
+  font:
+    14px/1.7 ui-monospace,
+    Consolas,
+    monospace;
+  tab-size: 2;
+}
+.block-source-editor > div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 8px;
+}
+.block-source-editor > div span {
+  flex: 1;
+  color: var(--muted);
+  font-size: 11px;
+}

@@ -130,11 +130,29 @@ try {
   await page.screenshot({ path: path.join(run, "settings.png"), scale: "css" });
   await page.keyboard.press("Escape");
   await page.getByTitle("所见即所得", { exact: true }).click();
+  await page
+    .locator(".tiptap p")
+    .filter({ hasText: "继续记录" })
+    .first()
+    .click();
+  await page.keyboard.press("Alt+Enter");
+  const blockInput = page.getByLabel("当前块 Markdown", { exact: true });
+  await blockInput.fill((await blockInput.inputValue()) + " 保存块草稿");
+  await blockInput.press("Control+s");
+  await expect.poll(() => fs.readFile(file, "utf8")).toContain("保存块草稿");
+  await page
+    .locator(".tiptap p")
+    .filter({ hasText: "保存块草稿" })
+    .first()
+    .click();
+  await page.keyboard.press("Alt+Enter");
+  await blockInput.fill((await blockInput.inputValue()) + " 退出前草稿");
   await app.close();
   running = await launch();
   ({ app, page } = running);
   await expect(page.locator(".tiptap")).toContainText("中文输入");
   await expect(page.locator(".tiptap table")).toContainText("128");
+  await expect(page.locator(".tiptap")).toContainText("退出前草稿");
   expect(errors).toEqual([]);
   console.log(
     "Rich editing, native save, tables, formulas, IME, caret and mode restoration passed:",

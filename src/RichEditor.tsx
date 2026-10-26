@@ -20,8 +20,12 @@ import { mathToken, renderMath, imageURL } from "./markdown";
 import { SettingsDialog } from "./SettingsDialog";
 import { useRichMotion } from "./rich-motion";
 import type { MotionOptions } from "./editor-motion";
+import { RichSource } from "./rich-source";
+import { richSyntax } from "./rich-syntax";
 const lowlight = createLowlight(common);
 export type RichEditorHandle = {
+  flush: () => string | undefined;
+  hasDraft: () => boolean;
   insert: (before: string, after?: string) => void;
   focus: () => void;
   insertImage: (src: string) => void;
@@ -49,6 +53,21 @@ export const RichEditor = forwardRef<
     lastValue = useRef(value),
     callback = useRef(onChange);
   callback.current = onChange;
+  const source = useRef(new RichSource());
+  const openSource = useRef<() => void>(() => {});
+  const sourceInput = useRef<HTMLTextAreaElement>(null);
+  const sourcePanel = useRef<HTMLDivElement>(null);
+  const [sourceHeight, setSourceHeight] = useState(180);
+  const [blockSource, setBlockSource] = useState<{
+    index: number;
+    from: number;
+    text: string;
+    top: number;
+    height: number;
+  } | null>(null);
+  const draftRef = useRef(blockSource);
+  draftRef.current = blockSource;
+  const flushSource = useRef<() => string | undefined>(() => undefined);
   const [formula, setFormula] = useState<{
     latex: string;
     block: boolean;
@@ -193,6 +212,7 @@ export const RichEditor = forwardRef<
       math(true),
       math(false),
       Markdown,
+      richSyntax(() => openSource.current()),
     ];
   }, []);
   const editor = useEditor({
@@ -207,13 +227,99 @@ export const RichEditor = forwardRef<
         role: "textbox",
         "aria-multiline": "true",
       },
+      handleKeyDown: (_view, event) => {
+        if (event.altKey && event.key === "Enter" && !event.isComposing) {
+          event.preventDefault();
+          openSource.current();
+          return true;
+        }
+        return false;
+      },
     },
+    onCreate: ({ editor }) => source.current.reset(editor, lastValue.current),
     onUpdate: ({ editor }) => {
-      const markdown = editor.getMarkdown();
+      const markdown = source.current.serialize(editor);
       lastValue.current = markdown;
       callback.current(markdown);
     },
   });
+  openSource.current = () => {
+    if (!editor || blockSource) return;
+    // A keydown may arrive before the browser's asynchronous selectionchange.
+    const selection = window.getSelection();
+    if (
+      selection?.anchorNode &&
+      selection.focusNode &&
+      editor.view.dom.contains(selection.anchorNode) &&
+      editor.view.dom.contains(selection.focusNode)
+    ) {
+      const from = editor.view.posAtDOM(
+        selection.anchorNode,
+        selection.anchorOffset,
+      );
+      const to = editor.view.posAtDOM(
+        selection.focusNode,
+        selection.focusOffset,
+      );
+      editor.commands.setTextSelection({ from, to });
+    }
+    const { $from } = editor.state.selection;
+    const index = $from.index(0);
+    if (index >= editor.state.doc.childCount) return;
+    let from = 0;
+    for (let i = 0; i < index; i++) from += editor.state.doc.child(i).nodeSize;
+    const dom = editor.view.nodeDOM(from) as HTMLElement | null;
+    if (!dom || !surface.current) return;
+    const bounds = dom.getBoundingClientRect();
+    setBlockSource({
+      index,
+      from,
+      text: source.current.block(editor, index),
+      top: bounds.top - surface.current.getBoundingClientRect().top,
+      height: bounds.height,
+    });
+  };
+  const applySource = (focus = true) => {
+    if (!editor || !blockSource) return;
+    const markdown = source.current.replace(
+      editor,
+      blockSource.index,
+      blockSource.text,
+    );
+    setBlockSource(null);
+    editor.commands.setContent(markdown, {
+      contentType: "markdown",
+      emitUpdate: false,
+    });
+    source.current.reset(editor, markdown);
+    lastValue.current = markdown;
+    callback.current(markdown);
+    editor.commands.setTextSelection(
+      Math.min(blockSource.from + 1, editor.state.doc.content.size),
+    );
+    if (focus) editor.view.focus();
+    return markdown;
+  };
+  flushSource.current = () => applySource(false);
+  useEffect(() => {
+    if (!blockSource) return;
+    sourceInput.current?.focus();
+    const dismiss = (event: PointerEvent) => {
+      if (!(event.target as HTMLElement).closest(".block-source-editor"))
+        applySource(false);
+    };
+    document.addEventListener("pointerdown", dismiss, true);
+    return () => document.removeEventListener("pointerdown", dismiss, true);
+  }, [blockSource]);
+  useEffect(() => {
+    if (!blockSource || !sourcePanel.current) return;
+    const observer = new ResizeObserver(() => {
+      if (sourcePanel.current)
+        setSourceHeight(sourcePanel.current.offsetHeight + 12);
+    });
+    observer.observe(sourcePanel.current);
+    return () => observer.disconnect();
+  }, [!!blockSource]);
   useEffect(() => {
     if (!editor || value === lastValue.current) return;
     lastValue.current = value;
@@ -222,6 +328,8 @@ export const RichEditor = forwardRef<
       contentType: "markdown",
       emitUpdate: false,
     });
+    source.current.reset(editor, value);
+    setBlockSource(null);
     editor.commands.setTextSelection({
       from: Math.min(selection.from, editor.state.doc.content.size),
       to: Math.min(selection.to, editor.state.doc.content.size),
@@ -257,6 +365,8 @@ export const RichEditor = forwardRef<
   useImperativeHandle(
     ref,
     () => ({
+      flush: () => flushSource.current(),
+      hasDraft: () => !!draftRef.current,
       focus: () => editor?.commands.focus(),
       insertImage: (src) => {
         if (editor)
@@ -317,6 +427,12 @@ export const RichEditor = forwardRef<
     <section className="rich-editor">
       <div className={`rich-tools ${!toolbar ? "toolbar-hidden" : ""}`}>
         <span>所见即所得</span>
+        <button
+          title="编辑当前块 Markdown（Alt+Enter）"
+          onClick={() => openSource.current()}
+        >
+          当前块源码
+        </button>
         <button onClick={() => setFormula({ latex: "E = mc^2", block: true })}>
           插入公式
         </button>
@@ -350,6 +466,67 @@ export const RichEditor = forwardRef<
       <div className="rich-scroll">
         <div className="rich-surface" ref={surface}>
           <EditorContent editor={editor} />
+          {blockSource && (
+            <div
+              ref={sourcePanel}
+              className="block-source-editor"
+              style={{ top: blockSource.top, minHeight: blockSource.height }}
+            >
+              <style>{`.rich-document > :nth-child(${blockSource.index + 1}) { visibility: hidden; min-height: ${sourceHeight}px; }`}</style>
+              <textarea
+                ref={sourceInput}
+                aria-label="当前块 Markdown"
+                spellCheck={false}
+                value={blockSource.text}
+                style={{ minHeight: Math.max(100, blockSource.height) }}
+                onChange={(event) => {
+                  setBlockSource({ ...blockSource, text: event.target.value });
+                  window.desktop?.setDirty(true);
+                }}
+                onKeyDown={(event) => {
+                  if (event.nativeEvent.isComposing) return;
+                  if (event.key === "Escape") {
+                    event.preventDefault();
+                    setBlockSource(null);
+                    editor?.view.focus();
+                  } else if (
+                    event.key === "Enter" &&
+                    (event.ctrlKey || event.metaKey)
+                  ) {
+                    event.preventDefault();
+                    applySource();
+                  } else if (event.key === "Tab") {
+                    event.preventDefault();
+                    const input = event.currentTarget;
+                    const start = input.selectionStart,
+                      end = input.selectionEnd;
+                    setBlockSource({
+                      ...blockSource,
+                      text:
+                        blockSource.text.slice(0, start) +
+                        "  " +
+                        blockSource.text.slice(end),
+                    });
+                    requestAnimationFrame(() =>
+                      input.setSelectionRange(start + 2, start + 2),
+                    );
+                  }
+                }}
+              />
+              <div>
+                <span>Markdown · Ctrl/⌘+Enter 应用 · Esc 取消</span>
+                <button
+                  onClick={() => {
+                    setBlockSource(null);
+                    editor?.commands.focus();
+                  }}
+                >
+                  取消
+                </button>
+                <button onClick={() => applySource()}>应用</button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
       {formula && (

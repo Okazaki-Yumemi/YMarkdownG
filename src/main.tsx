@@ -43,8 +43,6 @@ import {
   Download,
   Upload,
   X,
-  Moon,
-  Sun,
   RotateCcw,
   Heading2,
   Palette,
@@ -411,6 +409,7 @@ function App() {
       clearTimeout(diskTimer.current);
       void (async () => {
         try {
+          richEditor.current?.flush();
           await Promise.all([...imageTasks.current]);
           await refreshTask.current;
           await structureTask.current;
@@ -460,7 +459,8 @@ function App() {
           if (diskVersion.current === version) {
             setDiskStatus("saved");
             setDiskError("");
-            window.desktop?.setDirty(false);
+            if (!richEditor.current?.hasDraft())
+              window.desktop?.setDirty(false);
           }
         })
         .catch((error) => {
@@ -484,6 +484,7 @@ function App() {
     return () => window.removeEventListener("beforeunload", handler);
   }, [workspace, diskStatus]);
   function refreshWorkspace(manual = false): Promise<void> {
+    if (richEditor.current?.hasDraft()) return Promise.resolve();
     if (imageTasks.current.size) return Promise.resolve();
     if (
       !(workspace instanceof DesktopWorkspace) ||
@@ -1173,6 +1174,7 @@ function App() {
       if (e.metaKey || e.ctrlKey) {
         if (e.key.toLowerCase() === "s") {
           e.preventDefault();
+          richEditor.current?.flush();
           if (window.desktop && workspace) {
             clearTimeout(diskTimer.current);
             const version = ++diskVersion.current;
