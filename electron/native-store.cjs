@@ -2,6 +2,28 @@ const fs = require("node:fs/promises");
 const path = require("node:path");
 const { randomUUID } = require("node:crypto");
 
+function imageType(bytes) {
+  if (
+    bytes.length >= 8 &&
+    bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
+  )
+    return { ext: "png", mime: "image/png" };
+  if (
+    bytes.length >= 3 &&
+    bytes[0] === 255 &&
+    bytes[1] === 216 &&
+    bytes[2] === 255
+  )
+    return { ext: "jpg", mime: "image/jpeg" };
+  if (["GIF87a", "GIF89a"].includes(bytes.subarray(0, 6).toString()))
+    return { ext: "gif", mime: "image/gif" };
+  if (
+    bytes.subarray(0, 4).toString() === "RIFF" &&
+    bytes.subarray(8, 12).toString() === "WEBP"
+  )
+    return { ext: "webp", mime: "image/webp" };
+  throw new Error("请选择 PNG、JPEG、GIF 或 WebP 图片");
+}
 const MAX_SIZE = 5 * 1024 * 1024;
 function safeName(value) {
   const name = value
@@ -236,6 +258,8 @@ class NativeStore {
       const old = previous ? await this.unchanged(previous) : undefined;
       const parent = await this.resolve(note.folder, true);
       const same = previous && previousFolder === note.folder;
+      if (previous && !same)
+        await this.copyManagedImages(note.content, previousFolder, note.folder);
       let name =
         previous?.path.split("/").pop() || `${safeName(note.title)}.md`;
       let target = path.join(parent, name);
@@ -285,6 +309,70 @@ class NativeStore {
       this.records.delete(id);
     }
     return this.snapshot();
+  }
+  async readImage(relative) {
+    const parts = relative.split("/");
+    const name = parts.pop();
+    if (
+      !name ||
+      name.startsWith(".") ||
+      /[<>:"/\\|?*\x00-\x1f]/.test(name) ||
+      !/\.(png|jpe?g|gif|webp)$/i.test(name)
+    )
+      throw new Error("无效图片路径");
+    const target = path.join(await this.resolve(parts.join("/")), name);
+    const stat = await fs.lstat(target);
+    if (stat.isSymbolicLink() || !stat.isFile())
+      throw new Error("不支持符号链接或非普通图片");
+    const bytes = await fs.readFile(target);
+    return { bytes, ...imageType(bytes) };
+  }
+  saveImage(id, data) {
+    const task = this.queue
+      .catch(() => {})
+      .then(async () => {
+        if (!(data instanceof Uint8Array) && !(data instanceof ArrayBuffer))
+          throw new Error("无效图片数据");
+        const bytes = Buffer.from(data),
+          type = imageType(bytes);
+        const record = this.records.get(id);
+        if (!record) throw new Error("请先保存笔记再插入图片");
+        const parent = record.path.split("/").slice(0, -1).join("/");
+        const name = `ymg-image-${Date.now()}-${randomUUID().slice(0, 8)}.${type.ext}`;
+        await fs.writeFile(path.join(await this.resolve(parent), name), bytes, {
+          flag: "wx",
+        });
+        return name;
+      });
+    this.queue = task;
+    return task;
+  }
+  async copyManagedImages(content, from, to) {
+    const names = [
+      ...new Set(
+        [
+          ...content.matchAll(
+            /!\[[^\]]*\]\((ymg-image-[\w-]+\.(?:png|jpg|gif|webp))\)/g,
+          ),
+        ].map((match) => match[1]),
+      ),
+    ];
+    for (const name of names) {
+      const source = await this.readImage(
+        [from, name].filter(Boolean).join("/"),
+      );
+      const target = path.join(await this.resolve(to, true), name);
+      try {
+        await fs.writeFile(target, source.bytes, { flag: "wx" });
+      } catch (error) {
+        if (error.code !== "EEXIST") throw error;
+        const other = await this.readImage(
+          [to, name].filter(Boolean).join("/"),
+        );
+        if (!other.bytes.equals(source.bytes))
+          throw new Error(`目标目录存在不同内容的同名图片：${name}`);
+      }
+    }
   }
   renameNote(id, title) {
     const task = this.queue
@@ -402,4 +490,4 @@ class NativeStore {
     return task;
   }
 }
-module.exports = { NativeStore };
+module.exports = { NativeStore, imageType };

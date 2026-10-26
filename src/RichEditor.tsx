@@ -16,7 +16,7 @@ import TaskItem from "@tiptap/extension-task-item";
 import Image from "@tiptap/extension-image";
 import CodeBlockLowlight from "@tiptap/extension-code-block-lowlight";
 import { common, createLowlight } from "lowlight";
-import { mathToken, renderMath } from "./markdown";
+import { mathToken, renderMath, imageURL } from "./markdown";
 import { SettingsDialog } from "./SettingsDialog";
 import { useRichMotion } from "./rich-motion";
 import type { MotionOptions } from "./editor-motion";
@@ -24,11 +24,27 @@ const lowlight = createLowlight(common);
 export type RichEditorHandle = {
   insert: (before: string, after?: string) => void;
   focus: () => void;
+  insertImage: (src: string) => void;
+  resolveImage: (token: string, src: string | null) => void;
 };
 export const RichEditor = forwardRef<
   RichEditorHandle,
-  { value: string; onChange: (value: string) => void; motion: MotionOptions }
->(function RichEditor({ value, onChange, motion }, ref) {
+  {
+    value: string;
+    onChange: (value: string) => void;
+    motion: MotionOptions;
+    toolbar: boolean;
+    assetBase?: string;
+    onImagePaste: (file: File) => void;
+  }
+>(function RichEditor(
+  { value, onChange, motion, toolbar, assetBase, onImagePaste },
+  ref,
+) {
+  const imagePasteRef = useRef(onImagePaste);
+  imagePasteRef.current = onImagePaste;
+  const baseRef = useRef(assetBase);
+  baseRef.current = assetBase;
   const surface = useRef<HTMLDivElement>(null),
     lastValue = useRef(value),
     callback = useRef(onChange);
@@ -146,6 +162,22 @@ export const RichEditor = forwardRef<
         node.attrs.raw,
       ],
     });
+    const localImage = Image.extend({
+      addNodeView:
+        () =>
+        ({ node }) => {
+          const dom = document.createElement("img");
+          const update = (next: typeof node) => {
+            if (next.type.name !== "image") return false;
+            dom.src = imageURL(next.attrs.src || "", baseRef.current);
+            dom.alt = next.attrs.alt || "图片";
+            dom.dataset.markdownSrc = next.attrs.src || "";
+            return true;
+          };
+          update(node);
+          return { dom, update };
+        },
+    });
     return [
       StarterKit.configure({
         codeBlock: false,
@@ -155,7 +187,7 @@ export const RichEditor = forwardRef<
       TableKit.configure({ table: { resizable: true } }),
       TaskList,
       TaskItem.configure({ nested: true }),
-      Image.configure({ allowBase64: true }),
+      localImage.configure({ allowBase64: true, inline: true }),
       rawBlock,
       rawInline,
       math(true),
@@ -185,11 +217,38 @@ export const RichEditor = forwardRef<
   useEffect(() => {
     if (!editor || value === lastValue.current) return;
     lastValue.current = value;
+    const selection = editor.state.selection;
     editor.commands.setContent(value, {
       contentType: "markdown",
       emitUpdate: false,
     });
+    editor.commands.setTextSelection({
+      from: Math.min(selection.from, editor.state.doc.content.size),
+      to: Math.min(selection.to, editor.state.doc.content.size),
+    });
   }, [editor, value]);
+  useEffect(() => {
+    editor?.view.dom
+      .querySelectorAll<HTMLImageElement>("img[data-markdown-src]")
+      .forEach(
+        (img) => (img.src = imageURL(img.dataset.markdownSrc || "", assetBase)),
+      );
+  }, [editor, assetBase]);
+  useEffect(() => {
+    if (!editor) return;
+    const dom = editor.view.dom;
+    const paste = (event: ClipboardEvent) => {
+      const file = Array.from(event.clipboardData?.files || []).find((file) =>
+        /^image\/(png|jpeg|gif|webp)$/.test(file.type),
+      );
+      if (!file) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      imagePasteRef.current(file);
+    };
+    dom.addEventListener("paste", paste, true);
+    return () => dom.removeEventListener("paste", paste, true);
+  }, [editor]);
   useRichMotion(editor, surface, motion);
   const inTable = useEditorState({
     editor,
@@ -199,6 +258,26 @@ export const RichEditor = forwardRef<
     ref,
     () => ({
       focus: () => editor?.commands.focus(),
+      insertImage: (src) => {
+        if (editor)
+          editor
+            .chain()
+            .focus()
+            .setTextSelection(editor.state.selection.to)
+            .insertContent({ type: "image", attrs: { src, alt: "图片" } })
+            .run();
+      },
+      resolveImage: (token, src) => {
+        if (!editor) return;
+        const tr = editor.state.tr;
+        editor.state.doc.descendants((node, pos) => {
+          if (node.type.name === "image" && node.attrs.src === token) {
+            if (src) tr.setNodeMarkup(pos, undefined, { ...node.attrs, src });
+            else tr.delete(pos, pos + node.nodeSize);
+          }
+        });
+        if (tr.docChanged) editor.view.dispatch(tr);
+      },
       insert: (before, after = "") => {
         if (!editor) return;
         const selected = editor.state.doc.textBetween(
@@ -236,7 +315,7 @@ export const RichEditor = forwardRef<
   );
   return (
     <section className="rich-editor">
-      <div className="rich-tools">
+      <div className={`rich-tools ${!toolbar ? "toolbar-hidden" : ""}`}>
         <span>所见即所得</span>
         <button onClick={() => setFormula({ latex: "E = mc^2", block: true })}>
           插入公式

@@ -180,3 +180,46 @@ test("simultaneous edits and external deletion preserve local conflict copies", 
   assert.ok(data.notes.some((n) => n.content === "local after deletion"));
   assert.ok(!data.notes.some((n) => n.id === "a"));
 });
+
+test("images are saved next to Markdown and remain available after internal note moves", async (t) => {
+  const { dir, store } = await fixture();
+  await store.load();
+  await store.save([note("a")]);
+  const bytes = Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jP1sAAAAASUVORK5CYII=",
+    "base64",
+  );
+  const name = await store.saveImage("a", bytes);
+  assert.match(name, /^ymg-image-.*\.png$/);
+  assert.deepEqual(
+    await fs.readFile(path.join(dir, "知识库/前端", name)),
+    bytes,
+  );
+  const content = `# 测试\n\n![图片](${name})`;
+  await store.save([note("a", content)]);
+  await store.save([note("a", content, "新位置")]);
+  assert.deepEqual((await store.readImage(`新位置/${name}`)).bytes, bytes);
+  assert.deepEqual((await store.readImage(`知识库/前端/${name}`)).bytes, bytes);
+  await assert.rejects(
+    store.saveImage("a", Buffer.from("not an image")),
+    /图片/,
+  );
+  await assert.rejects(store.readImage("../outside.png"), /无效目录/);
+  await assert.rejects(store.readImage("新位置/测试.md"), /无效图片/);
+  await t.test("image symlinks are rejected", async (child) => {
+    try {
+      await fs.symlink(
+        path.join(dir, "新位置", name),
+        path.join(dir, "link.png"),
+        "file",
+      );
+    } catch (error) {
+      if (error.code === "EPERM") {
+        child.skip("File symlink creation requires OS privilege");
+        return;
+      }
+      throw error;
+    }
+    await assert.rejects(store.readImage("link.png"), /符号链接/);
+  });
+});

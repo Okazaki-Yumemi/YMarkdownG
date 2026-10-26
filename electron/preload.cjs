@@ -1,6 +1,9 @@
 const { contextBridge, ipcRenderer } = require("electron");
 contextBridge.exposeInMainWorld("desktop", {
   platform: process.platform,
+  saveImage: (id, noteId, bytes) =>
+    ipcRenderer.invoke("image:save", id, noteId, bytes),
+  chooseImage: () => ipcRenderer.invoke("image:choose"),
   chooseBackground: () => ipcRenderer.invoke("background:choose"),
   updateState: () => ipcRenderer.invoke("updates:state"),
   checkUpdates: () => ipcRenderer.invoke("updates:check"),

@@ -53,7 +53,7 @@ async function writePDF(html, destination) {
   printWindow.webContents.on("will-navigate", (e) => e.preventDefault());
   try {
     const mathStyle = await getMathCSS();
-    const document = `<!doctype html><html lang="zh-CN"><head><meta charset="UTF-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data: https:; font-src data:; style-src 'unsafe-inline';"><style>${mathStyle} ${styles}</style></head><body>${html}</body></html>`;
+    const document = `<!doctype html><html lang="zh-CN"><head><meta charset="UTF-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data: https: ymg-note:; font-src data:; style-src 'unsafe-inline';"><style>${mathStyle} ${styles}</style></head><body>${html}</body></html>`;
     await printWindow.loadURL(
       "data:text/html;charset=utf-8," + encodeURIComponent(document),
     );

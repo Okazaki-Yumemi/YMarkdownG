@@ -77,6 +77,7 @@ type Note = {
 };
 type Preferences = {
   sidebarWidth: number;
+  showHeader: boolean;
   showToolbar: boolean;
   showStatus: boolean;
   fullWidth: boolean;
@@ -99,6 +100,7 @@ type Preferences = {
 };
 const defaults: Preferences = {
   sidebarWidth: 300,
+  showHeader: true,
   showToolbar: true,
   showStatus: true,
   fullWidth: true,
@@ -296,6 +298,8 @@ function App() {
   workspaceRef.current = workspace;
   const [syncMessage, setSyncMessage] = useState("");
   const [syncError, setSyncError] = useState("");
+  const [imageBusy, setImageBusy] = useState(false);
+  const imageTasks = useRef(new Set<Promise<void>>());
   const structureTask = useRef<Promise<boolean> | null>(null);
   const dragEntry = useRef<{ kind: "folder" | "note"; id: string } | null>(
     null,
@@ -321,8 +325,11 @@ function App() {
   const workspacePopover = useRef<HTMLDivElement>(null);
   const morePopover = useRef<HTMLDivElement>(null);
   const richEditor = useRef<RichEditorHandle>(null);
+  const inlineImageInput = useRef<HTMLInputElement>(null);
   const preview = useRef<HTMLDivElement>(null);
   const note = notes.find((n) => n.id === activeId) || notes[0];
+  const activeNoteRef = useRef(note?.id);
+  activeNoteRef.current = note?.id;
   useEffect(() => {
     if (workspace instanceof DesktopWorkspace && note) {
       const file = workspace.pathFor(note.id);
@@ -404,6 +411,7 @@ function App() {
       clearTimeout(diskTimer.current);
       void (async () => {
         try {
+          await Promise.all([...imageTasks.current]);
           await refreshTask.current;
           await structureTask.current;
           if (workspace) await workspace.save(notesRef.current);
@@ -476,6 +484,7 @@ function App() {
     return () => window.removeEventListener("beforeunload", handler);
   }, [workspace, diskStatus]);
   function refreshWorkspace(manual = false): Promise<void> {
+    if (imageTasks.current.size) return Promise.resolve();
     if (
       !(workspace instanceof DesktopWorkspace) ||
       folderBusy ||
@@ -593,6 +602,7 @@ function App() {
       const refresh = refreshWorkspace();
       switchingWorkspace.current = true;
       try {
+        await Promise.all([...imageTasks.current]);
         await refresh;
         if (workspace) {
           clearTimeout(diskTimer.current);
@@ -728,6 +738,7 @@ function App() {
     if (folderBusy) return false;
     try {
       setFolderBusy(true);
+      await Promise.all([...imageTasks.current]);
       await refreshTask.current;
       clearTimeout(diskTimer.current);
       ++diskVersion.current;
@@ -793,7 +804,7 @@ function App() {
   }
   function validDrop(parent: string) {
     const entry = dragEntry.current;
-    if (!entry || folderBusy) return false;
+    if (!entry || folderBusy || imageBusy) return false;
     if (entry.kind === "folder")
       return (
         parent !== entry.id &&
@@ -871,19 +882,146 @@ function App() {
       document.removeEventListener("keydown", escape);
     };
   }, [workspaceMenu, menu]);
-  const update = (content: string) =>
-    setNotes((ns) =>
-      ns.map((n) =>
-        n.id === note?.id
-          ? {
-              ...n,
-              content,
-              title: content.match(/^#\s+(.+)$/m)?.[1] || "未命名笔记",
-              updated: Date.now(),
-            }
-          : n,
-      ),
+  const update = (content: string) => {
+    const next = notesRef.current.map((n) =>
+      n.id === note?.id
+        ? {
+            ...n,
+            content,
+            title: content.match(/^#\s+(.+)$/m)?.[1] || "未命名笔记",
+            updated: Date.now(),
+          }
+        : n,
     );
+    notesRef.current = next;
+    setNotes(next);
+  };
+  function resolvePendingImage(id: string, token: string, src: string | null) {
+    const current = notesRef.current.find((n) => n.id === id);
+    if (!current?.content.includes(token)) return;
+    if (activeNoteRef.current === id && richEditor.current) {
+      richEditor.current.resolveImage(token, src);
+      return;
+    }
+    const view = editor.current?.view;
+    if (
+      activeNoteRef.current === id &&
+      view &&
+      view.state.doc.toString() === current.content
+    ) {
+      const needle = src ? token : `![图片](${token})`;
+      const from = current.content.indexOf(needle);
+      if (from >= 0) {
+        view.dispatch({
+          changes: { from, to: from + needle.length, insert: src || "" },
+        });
+        return;
+      }
+    }
+    const next = notesRef.current.map((n) =>
+      n.id === id
+        ? {
+            ...n,
+            content: src
+              ? n.content.replaceAll(token, src)
+              : n.content.replaceAll(`![图片](${token})`, ""),
+            updated: Date.now(),
+          }
+        : n,
+    );
+    notesRef.current = next;
+    setNotes(next);
+  }
+  function insertImageData(data: Promise<Uint8Array>) {
+    if (!note) return;
+    const id = note.id,
+      currentWorkspace = workspace,
+      originalTitle = note.title;
+    const token = `ymg-pending:${crypto.randomUUID()}`,
+      markup = `![图片](${token})`;
+    window.desktop?.setDirty(true);
+    setImageBusy(true);
+    if (mode === "rich") richEditor.current?.insertImage(token);
+    else if (editor.current?.view) {
+      const view = editor.current.view;
+      const from = view.state.selection.main.to;
+      view.dispatch({
+        changes: { from, insert: markup },
+        selection: { anchor: from + markup.length },
+      });
+    } else {
+      update(note.content + "\n\n" + markup + "\n");
+      setMode("split");
+    }
+    const precedingRefresh = refreshTask.current,
+      precedingStructure = structureTask.current;
+    const task = (async () => {
+      try {
+        const bytes = await data;
+        await precedingRefresh;
+        await precedingStructure;
+        let relative: string;
+        if (currentWorkspace instanceof DesktopWorkspace) {
+          await currentWorkspace.save(
+            notesRef.current.map((n) =>
+              n.id === id ? { ...n, title: originalTitle } : n,
+            ),
+          );
+          relative = await currentWorkspace.saveImage(id, bytes);
+        } else {
+          const blob = new Blob([Uint8Array.from(bytes).buffer], {
+            type: "image/png",
+          });
+          relative = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(String(reader.result));
+            reader.onerror = reject;
+            reader.readAsDataURL(blob);
+          });
+        }
+        resolvePendingImage(id, token, relative);
+        if (currentWorkspace) {
+          await currentWorkspace.save(notesRef.current);
+        }
+        notify(
+          currentWorkspace instanceof DesktopWorkspace
+            ? "图片已保存到 Markdown 同目录"
+            : "图片已插入",
+        );
+      } catch (error) {
+        resolvePendingImage(id, token, null);
+        notify(`图片保存失败：${(error as Error).message}`);
+      }
+    })();
+    imageTasks.current.add(task);
+    void task.finally(() => {
+      imageTasks.current.delete(task);
+      if (!imageTasks.current.size) setImageBusy(false);
+    });
+  }
+  async function chooseInlineImage() {
+    if (!note) return;
+    try {
+      if (window.desktop) {
+        const bytes = await window.desktop.chooseImage();
+        if (bytes) insertImageData(Promise.resolve(bytes));
+      } else inlineImageInput.current?.click();
+    } catch (error) {
+      notify((error as Error).message);
+    }
+  }
+  function pasteImage(event: React.ClipboardEvent) {
+    if (!(event.target as HTMLElement).closest(".cm-content")) return;
+    const image = Array.from(event.clipboardData.files).find((file) =>
+      /^image\/(png|jpeg|gif|webp)$/.test(file.type),
+    );
+    if (!image) return;
+    event.preventDefault();
+    event.stopPropagation();
+    insertImageData(
+      image.arrayBuffer().then((buffer) => new Uint8Array(buffer)),
+    );
+  }
   function createNote() {
     if (window.desktop && !workspace) {
       void openWorkspace();
@@ -924,6 +1062,7 @@ function App() {
     const title = renameTitle.trim();
     if (!title || /[<>:"/\\|?*]/.test(title)) return notify("请输入有效文件名");
     setRenameBusy(true);
+    await Promise.all([...imageTasks.current]);
     await refreshTask.current;
     clearTimeout(diskTimer.current);
     ++diskVersion.current;
@@ -1060,6 +1199,13 @@ function App() {
               });
           } else exportNote();
         }
+        if (
+          (e.target as HTMLElement)?.closest(
+            "input,textarea,[role=combobox]",
+          ) &&
+          ["b", "i"].includes(e.key.toLowerCase())
+        )
+          return;
         if (e.key.toLowerCase() === "b") {
           e.preventDefault();
           insert("**", "**");
@@ -1136,9 +1282,13 @@ function App() {
         .catch((error) => notify(`背景读取失败：${error.message}`));
     else imageRef.current?.click();
   }
+  const imageBase =
+    workspace instanceof DesktopWorkspace && note
+      ? workspace.imageBase(note.id)
+      : undefined;
   const html = useMemo(
-    () => renderMarkdown(note?.content || ""),
-    [note?.content],
+    () => renderMarkdown(note?.content || "", imageBase),
+    [note?.content, imageBase],
   );
   useScrollSync(editor, preview, prefs.syncScroll, mode, html);
   useEffect(() => {
@@ -1245,6 +1395,20 @@ function App() {
         onChange={(e) => {
           uploadBackground(e.target.files?.[0]);
           e.target.value = "";
+        }}
+      />
+      <input
+        hidden
+        type="file"
+        accept="image/png,image/jpeg,image/webp,image/gif"
+        ref={inlineImageInput}
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          if (file)
+            insertImageData(
+              file.arrayBuffer().then((buffer) => new Uint8Array(buffer)),
+            );
+          event.target.value = "";
         }}
       />
       {sidebar && !focus && (
@@ -1470,7 +1634,7 @@ function App() {
                   <button
                     aria-label={`目录 ${f}`}
                     className={`tree-folder ${filter === f ? "selected" : ""} ${dropTarget === f ? "drop-target" : ""}`}
-                    draggable={!folderBusy}
+                    draggable={!folderBusy && !imageBusy}
                     onDragStart={(e) => startDrag(e, "folder", f)}
                     onDragEnd={() => {
                       dragEntry.current = null;
@@ -1569,7 +1733,7 @@ function App() {
               <button
                 title={`${workspace?.pathFor(n.id) || [n.folder, n.title + ".md"].filter(Boolean).join("/")} · ${new Date(n.updated).toLocaleString("zh-CN")}`}
                 className={`note-card ${note?.id === n.id ? "active" : ""}`}
-                draggable={!folderBusy}
+                draggable={!folderBusy && !imageBusy}
                 onDragStart={(e) => startDrag(e, "note", n.id)}
                 onDragEnd={() => {
                   dragEntry.current = null;
@@ -1650,7 +1814,9 @@ function App() {
         />
       )}
       <main className="main">
-        <header className="topbar">
+        <header
+          className={`topbar ${!prefs.showHeader ? "header-hidden" : ""}`}
+        >
           <div className="breadcrumb">
             <button title="切换侧栏" onClick={() => setSidebar(!sidebar)}>
               <PanelLeft size={19} />
@@ -1721,7 +1887,7 @@ function App() {
               <Star size={18} fill={note?.starred ? "currentColor" : "none"} />
             </button>
             <button
-              title="外观设置"
+              title="设置"
               className={appearance ? "pressed" : ""}
               onClick={() => {
                 setAppearance(!appearance);
@@ -1797,9 +1963,13 @@ function App() {
             {tools.map((t) => (
               <button
                 key={t.title}
-                title={t.title}
-                aria-label={t.title}
-                onClick={() => insert(t.before, t.after)}
+                title={t.title === "图片语法" ? "插入图片" : t.title}
+                aria-label={t.title === "图片语法" ? "插入图片" : t.title}
+                onClick={() =>
+                  t.title === "图片语法"
+                    ? void chooseInlineImage()
+                    : insert(t.before, t.after)
+                }
               >
                 <t.icon size={17} />
               </button>
@@ -1835,7 +2005,7 @@ function App() {
             </button>
           </div>
         </div>
-        <div className="work-area">
+        <div className="work-area" onPasteCapture={pasteImage}>
           <div className={`canvas bg-${prefs.background}`}>
             <div
               className="background-layer"
@@ -1866,6 +2036,15 @@ function App() {
                       <RichEditor
                         key={note.id}
                         ref={richEditor}
+                        toolbar={prefs.showToolbar}
+                        assetBase={imageBase}
+                        onImagePaste={(file) =>
+                          insertImageData(
+                            file
+                              .arrayBuffer()
+                              .then((buffer) => new Uint8Array(buffer)),
+                          )
+                        }
                         value={note.content}
                         onChange={update}
                         motion={{
@@ -2075,6 +2254,11 @@ function App() {
                       <h2 className="settings-section-title">工作区布局</h2>
                       {(
                         [
+                          {
+                            key: "showHeader",
+                            name: "显示顶部文件栏",
+                            detail: "隐藏后可用 Ctrl / Cmd + , 打开设置",
+                          },
                           {
                             key: "showToolbar",
                             name: "显示格式工具栏",
@@ -2474,7 +2658,11 @@ function App() {
               >
                 取消
               </button>
-              <button className="primary" type="submit">
+              <button
+                className="primary"
+                type="submit"
+                disabled={moveDialog && imageBusy}
+              >
                 {moveDialog ? "确认移动" : "创建笔记"}
               </button>
             </div>

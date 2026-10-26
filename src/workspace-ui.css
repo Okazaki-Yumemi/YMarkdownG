@@ -730,3 +730,21 @@
 .rich-document th p {
   margin: 4px 0;
 }
+
+.app .topbar.header-hidden {
+  display: none;
+}
+
+.app .rich-tools.toolbar-hidden {
+  display: none;
+}
+.section-label .folder-total {
+  margin-left: 6px;
+}
+
+.rich-document img:not(.ProseMirror-separator) {
+  max-width: 100%;
+  height: auto;
+  display: inline-block;
+  vertical-align: middle;
+}

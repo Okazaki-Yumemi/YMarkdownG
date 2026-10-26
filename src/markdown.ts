@@ -91,7 +91,16 @@ parser.use({
     },
   },
 });
-export function renderMarkdown(content: string) {
+export function imageURL(src: string, base?: string) {
+  if (!base || /^(?:https?:|data:|blob:|ymg-note:)/i.test(src)) return src;
+  if (/^[a-z][a-z0-9+.-]*:/i.test(src)) return "";
+  try {
+    return new URL(src, base).href;
+  } catch {
+    return "";
+  }
+}
+export function renderMarkdown(content: string, assetBase?: string) {
   const tokens = parser.lexer(content.replace(/\r\n?/g, "\n"));
   let line = 1;
   const html = tokens
@@ -104,7 +113,17 @@ export function renderMarkdown(content: string) {
       return `<div class="md-source-block" data-source-line="${start}" data-source-end="${line}" title="源码第 ${start} 行">${parser.parser(group)}</div>`;
     })
     .join("");
-  return DOMPurify.sanitize(html, {
+  const sanitized = DOMPurify.sanitize(html, {
     ADD_ATTR: ["data-source-line", "data-source-end"],
   });
+  if (!assetBase) return sanitized;
+  const fragment = document.createElement("template");
+  fragment.innerHTML = sanitized;
+  fragment.content.querySelectorAll("img[src]").forEach((image) => {
+    image.setAttribute(
+      "src",
+      imageURL(image.getAttribute("src") || "", assetBase),
+    );
+  });
+  return fragment.innerHTML;
 }

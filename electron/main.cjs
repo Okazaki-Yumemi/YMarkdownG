@@ -14,6 +14,10 @@ const { randomUUID } = require("node:crypto");
 const { pathToFileURL } = require("node:url");
 protocol.registerSchemesAsPrivileged([
   {
+    scheme: "ymg-note",
+    privileges: { standard: true, secure: true, supportFetchAPI: true },
+  },
+  {
     scheme: "ymg-asset",
     privileges: {
       standard: true,
@@ -23,7 +27,7 @@ protocol.registerSchemesAsPrivileged([
     },
   },
 ]);
-const { NativeStore } = require("./native-store.cjs");
+const { NativeStore, imageType } = require("./native-store.cjs");
 const { writePDF } = require("./pdf.cjs");
 const { createUpdates } = require("./updater.cjs");
 if (process.env.YMG_USER_DATA)
@@ -127,6 +131,22 @@ register("workspace:open", async () => {
   });
   return result.canceled ? null : openRoot(result.filePaths[0]);
 });
+register("image:save", (id, noteId, bytes) =>
+  getStore(id).saveImage(noteId, bytes),
+);
+register("image:choose", async () => {
+  const result = await dialog.showOpenDialog(win, {
+    title: "插入图片",
+    properties: ["openFile"],
+    filters: [
+      { name: "图片", extensions: ["png", "jpg", "jpeg", "webp", "gif"] },
+    ],
+  });
+  if (result.canceled) return null;
+  const bytes = await fs.readFile(result.filePaths[0]);
+  imageType(bytes);
+  return bytes;
+});
 register("workspace:refresh", (id, notes) => getStore(id).refresh(notes));
 register("workspace:save", (id, notes) => getStore(id).save(notes));
 register("workspace:rename-note", (id, noteId, title) =>
@@ -226,6 +246,23 @@ ipcMain.on("document:flushed", async (event, ok, error) => {
   }
 });
 app.whenReady().then(() => {
+  protocol.handle("ymg-note", async (request) => {
+    try {
+      const url = new URL(request.url);
+      const result = await getStore(url.hostname).readImage(
+        decodeURIComponent(url.pathname.slice(1)),
+      );
+      return new Response(result.bytes, {
+        headers: {
+          "Content-Type": result.mime,
+          "Cache-Control": "no-cache",
+          "X-Content-Type-Options": "nosniff",
+        },
+      });
+    } catch {
+      return new Response("Not found", { status: 404 });
+    }
+  });
   protocol.handle("ymg-asset", (request) => {
     const url = new URL(request.url);
     const name = url.pathname.slice(1);

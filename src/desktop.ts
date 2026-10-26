@@ -13,6 +13,8 @@ declare global {
   interface Window {
     desktop?: {
       platform: string;
+      saveImage(id: string, noteId: string, bytes: Uint8Array): Promise<string>;
+      chooseImage(): Promise<Uint8Array | null>;
       chooseBackground(): Promise<string | null>;
       updateState(): Promise<UpdateState>;
       checkUpdates(): Promise<UpdateState>;
@@ -78,6 +80,15 @@ export class DesktopWorkspace {
   }
   pathFor(id: string) {
     return this.paths[id];
+  }
+  imageBase(id: string) {
+    const relative = this.paths[id];
+    return relative
+      ? `ymg-note://${this.id}/${relative.split("/").map(encodeURIComponent).join("/")}`
+      : undefined;
+  }
+  saveImage(id: string, bytes: Uint8Array) {
+    return window.desktop!.saveImage(this.id, id, bytes);
   }
   async refresh(notes: StoredNote[]) {
     const result = await window.desktop!.refresh(this.id, notes);
