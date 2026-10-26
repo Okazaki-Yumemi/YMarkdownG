@@ -9,7 +9,9 @@
     "electron/**/*",
     "public/icon-512.png",
     "public/favicon.ico",
-    "package.json"
+    "package.json",
+    "THIRD_PARTY_NOTICES.md",
+    "docs/licenses/*"
   ],
   "asar": true,
   "electronDist": "node_modules/electron/dist",
