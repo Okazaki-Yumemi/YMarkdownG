@@ -19,8 +19,8 @@ const env = { ...process.env, YMG_USER_DATA: profile, YMG_TEST: "1" };
 delete env.ELECTRON_RUN_AS_NODE;
 delete env.YMG_DEV_URL;
 const app = await electron.launch({
-  executablePath: require("electron"),
-  args: ["."],
+  executablePath: process.argv[2] || require("electron"),
+  args: process.argv[2] ? [] : ["."],
   env,
 });
 try {
@@ -71,7 +71,12 @@ try {
   await page.getByRole("button", { name: "确认重命名" }).click();
   await expect
     .poll(() =>
-      fs.readFile(path.join(vault, "冲突副本/本地编辑已保留.md"), "utf8"),
+      fs
+        .readFile(path.join(vault, "冲突副本/本地编辑已保留.md"), "utf8")
+        .catch((error) => {
+          if (["EBUSY", "ENOENT", "EPERM"].includes(error.code)) return "";
+          throw error;
+        }),
     )
     .toContain("local conflict");
   expect(errors).toEqual([]);

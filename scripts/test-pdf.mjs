@@ -24,8 +24,8 @@ const env = { ...process.env, YMG_USER_DATA: profile, YMG_TEST: "1" };
 delete env.ELECTRON_RUN_AS_NODE;
 delete env.YMG_DEV_URL;
 const app = await electron.launch({
-  executablePath: require("electron"),
-  args: ["."],
+  executablePath: process.argv[2] || require("electron"),
+  args: process.argv[2] ? [] : ["."],
   env,
 });
 try {

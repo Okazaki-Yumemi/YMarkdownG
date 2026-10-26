@@ -20,8 +20,8 @@ delete env.ELECTRON_RUN_AS_NODE;
 delete env.YMG_DEV_URL;
 async function launch() {
   const app = await electron.launch({
-    executablePath: require("electron"),
-    args: ["."],
+    executablePath: process.argv[2] || require("electron"),
+    args: process.argv[2] ? [] : ["."],
     env,
   });
   const page = await app.firstWindow();
