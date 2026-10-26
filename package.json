@@ -1,6 +1,6 @@
 {
   "name": "ymarkdowng",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "可自定义背景与排版的本地 Markdown 笔记编辑器",
   "scripts": {
     "dev": "node scripts/dev.mjs",
@@ -18,7 +18,8 @@
     "test:pdf": "node scripts/test-pdf.mjs",
     "test:sync": "node scripts/test-sync.mjs",
     "test:libraries": "node scripts/test-libraries.mjs",
-    "test:rich": "node scripts/test-rich.mjs"
+    "test:rich": "node scripts/test-rich.mjs",
+    "test:images": "node scripts/test-images.mjs"
   },
   "keywords": [],
   "author": "Okazaki-Yumemi",
@@ -30,6 +31,7 @@
     "@codemirror/state": "^6.7.6",
     "@codemirror/view": "^6.43.15",
     "@lezer/highlight": "^1.2.5",
+    "@tiptap/core": "^3.32.0",
     "@tiptap/extension-code-block-lowlight": "^3.32.0",
     "@tiptap/extension-image": "^3.32.0",
     "@tiptap/extension-table": "^3.32.0",
