@@ -15,6 +15,8 @@ contextBridge.exposeInMainWorld("desktop", {
   restore: () => ipcRenderer.invoke("workspace:restore"),
   open: () => ipcRenderer.invoke("workspace:open"),
   save: (id, notes) => ipcRenderer.invoke("workspace:save", id, notes),
+  renameNote: (id, noteId, title) =>
+    ipcRenderer.invoke("workspace:rename-note", id, noteId, title),
   createFolder: (id, folder) =>
     ipcRenderer.invoke("workspace:mkdir", id, folder),
   moveFolder: (id, from, to) =>

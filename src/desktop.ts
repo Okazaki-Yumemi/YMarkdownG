@@ -25,6 +25,11 @@ declare global {
         id: string,
         notes: StoredNote[],
       ): Promise<{ paths: Record<string, string> }>;
+      renameNote(
+        id: string,
+        noteId: string,
+        title: string,
+      ): Promise<{ paths: Record<string, string> }>;
       createFolder(id: string, folder: string): Promise<void>;
       moveFolder(
         id: string,
@@ -63,6 +68,9 @@ export class DesktopWorkspace {
   async save(notes: StoredNote[]) {
     const result = await window.desktop!.save(this.id, notes);
     this.paths = result.paths;
+  }
+  async renameNote(id: string, title: string) {
+    this.paths = (await window.desktop!.renameNote(this.id, id, title)).paths;
   }
   createFolder(path: string) {
     return window.desktop!.createFolder(this.id, path);

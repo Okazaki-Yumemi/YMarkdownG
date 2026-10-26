@@ -301,3 +301,19 @@ test("imports Markdown, copies code and persists uploaded backgrounds", async ({
   await expect(page.locator(".canvas")).toHaveClass(/bg-custom/);
   await expect(page.locator(".markdown-body h1")).toHaveText("导入代码");
 });
+
+test("note context menu renames the selected document and exposes move and delete", async ({ page }) => {
+  await page.goto("/");
+  const card = page.locator(".note-card").first();
+  await card.click({ button: "right" });
+  await expect(page.getByRole("menu", { name: "笔记操作" })).toBeVisible();
+  await page.getByRole("menuitem", { name: "重命名", exact: true }).click();
+  await page.getByLabel("新笔记名称").fill("重新整理的笔记");
+  await page.getByRole("button", { name: "确认重命名" }).click();
+  await expect(page.locator(".markdown-body h1")).toHaveText("重新整理的笔记");
+  await card.click({ button: "right" });
+  await expect(page.getByRole("menuitem", { name: "移动笔记" })).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: "删除笔记" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(card).toBeFocused();
+});

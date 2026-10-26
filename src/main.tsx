@@ -217,6 +217,14 @@ function App() {
   const [folderDialog, setFolderDialog] = useState(false);
   const [folderName, setFolderName] = useState("");
   const [folderParent, setFolderParent] = useState("");
+  const [noteMenu, setNoteMenu] = useState<{
+    id: string;
+    x: number;
+    y: number;
+  } | null>(null);
+  const [renameNoteId, setRenameNoteId] = useState<string | null>(null);
+  const [renameTitle, setRenameTitle] = useState("");
+  const [renameBusy, setRenameBusy] = useState(false);
   const [folderMenu, setFolderMenu] = useState<{
     folder: string;
     x: number;
@@ -684,6 +692,40 @@ function App() {
         editor.current?.view?.focus();
     });
   }
+  async function renameDocument() {
+    if (!renameNoteId || renameBusy) return;
+    const title = renameTitle.trim();
+    if (!title || /[<>:"/\\|?*]/.test(title)) return notify("请输入有效文件名");
+    setRenameBusy(true);
+    clearTimeout(diskTimer.current);
+    ++diskVersion.current;
+    try {
+      if (workspace) await workspace.save(notesRef.current);
+      if (workspace instanceof DesktopWorkspace)
+        await workspace.renameNote(renameNoteId, title);
+      else if (workspace) throw new Error("磁盘文件重命名请使用桌面版");
+      const next = notesRef.current.map((n) =>
+        n.id === renameNoteId
+          ? {
+              ...n,
+              title,
+              content: n.content.match(/^#\s+.+$/m)
+                ? n.content.replace(/^#\s+.+$/m, () => `# ${title}`)
+                : n.content,
+              updated: Date.now(),
+            }
+          : n,
+      );
+      notesRef.current = next;
+      setNotes(next);
+      setRenameNoteId(null);
+      notify("笔记已重命名");
+    } catch (error) {
+      notify((error as Error).message);
+    } finally {
+      setRenameBusy(false);
+    }
+  }
   function exportNote() {
     if (!note) return;
     if (window.desktop) {
@@ -1119,6 +1161,29 @@ function App() {
                 onDragEnd={() => {
                   dragEntry.current = null;
                   setDropTarget(null);
+                }}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  setActiveId(n.id);
+                  setFolderMenu(null);
+                  folderTrigger.current = e.currentTarget;
+                  setNoteMenu({ id: n.id, x: e.clientX, y: e.clientY });
+                }}
+                onKeyDown={(e) => {
+                  if (
+                    e.key === "ContextMenu" ||
+                    (e.shiftKey && e.key === "F10")
+                  ) {
+                    e.preventDefault();
+                    setActiveId(n.id);
+                    folderTrigger.current = e.currentTarget;
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    setNoteMenu({
+                      id: n.id,
+                      x: rect.left + 20,
+                      y: rect.bottom,
+                    });
+                  }
                 }}
                 key={n.id}
                 onClick={() => setActiveId(n.id)}
@@ -1879,6 +1944,72 @@ function App() {
             </div>
           </form>
         </div>
+      )}
+      {renameNoteId && (
+        <div className="modal-backdrop">
+          <form
+            className="modal"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void renameDocument();
+            }}
+          >
+            <h2>重命名笔记</h2>
+            <p>同时更改文件名与正文的一级标题。</p>
+            <input
+              autoFocus
+              required
+              aria-label="新笔记名称"
+              maxLength={100}
+              value={renameTitle}
+              onChange={(e) => setRenameTitle(e.target.value)}
+            />
+            <div>
+              <button
+                type="button"
+                disabled={renameBusy}
+                onClick={() => setRenameNoteId(null)}
+              >
+                取消
+              </button>
+              <button className="primary" disabled={renameBusy} type="submit">
+                确认重命名
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+      {noteMenu && (
+        <FolderContextMenu
+          kind="note"
+          folder={notes.find((n) => n.id === noteMenu.id)?.title || "笔记"}
+          x={noteMenu.x}
+          y={noteMenu.y}
+          onClose={(restore) => {
+            setNoteMenu(null);
+            if (restore) folderTrigger.current?.focus();
+          }}
+          onChild={() => {}}
+          onNote={() => {}}
+          onRename={() => {
+            setRenameNoteId(noteMenu.id);
+            setRenameTitle(
+              notes.find((n) => n.id === noteMenu.id)?.title || "",
+            );
+            setNoteMenu(null);
+          }}
+          onMove={() => {
+            setTargetFolder(
+              notes.find((n) => n.id === noteMenu.id)?.folder || "",
+            );
+            setMoveDialog(true);
+            setNoteMenu(null);
+          }}
+          onDelete={() => {
+            setPendingDelete(true);
+            setNoteMenu(null);
+          }}
+        />
       )}
       {folderMenu && (
         <FolderContextMenu

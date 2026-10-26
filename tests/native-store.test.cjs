@@ -117,3 +117,17 @@ test("symlink/junction directories are not followed", async () => {
   await assert.rejects(store.createFolder("link/escape"), /符号链接/);
   await assert.rejects(fs.access(path.join(outside.dir, "escape")));
 });
+
+test("note rename changes filename and rejects collisions", async () => {
+  const { dir, store } = await fixture();
+  await store.load();
+  await store.save([note("a"), note("b")]);
+  await store.renameNote("a", "重命名");
+  assert.equal(store.snapshot().paths.a, "知识库/前端/重命名.md");
+  assert.equal(
+    await fs.readFile(path.join(dir, store.snapshot().paths.a), "utf8"),
+    note("a").content,
+  );
+  await assert.rejects(store.renameNote("a", "测试 (1)"), /EEXIST/);
+  await assert.rejects(store.renameNote("a", "../escape"), /有效文件名/);
+});

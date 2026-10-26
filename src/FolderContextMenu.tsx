@@ -9,6 +9,7 @@ import {
 
 export function FolderContextMenu({
   folder,
+  kind = "folder",
   x,
   y,
   onClose,
@@ -19,6 +20,7 @@ export function FolderContextMenu({
   onDelete,
 }: {
   folder: string;
+  kind?: "folder" | "note";
   x: number;
   y: number;
   onClose: (restoreFocus?: boolean) => void;
@@ -61,7 +63,7 @@ export function FolderContextMenu({
       ref={menu}
       className="folder-context-menu"
       role="menu"
-      aria-label="目录操作"
+      aria-label={kind === "note" ? "笔记操作" : "目录操作"}
       style={{ left: position.x, top: position.y }}
       onKeyDown={(event) => {
         if (event.key === "Escape") {
@@ -94,22 +96,26 @@ export function FolderContextMenu({
       <div className="folder-menu-path" title={folder}>
         {folder}
       </div>
-      <button type="button" role="menuitem" onClick={onChild}>
-        <FolderPlus size={15} />
-        新建子目录<span>↳</span>
-      </button>
-      <button type="button" role="menuitem" onClick={onNote}>
-        <FileText size={15} />
-        在此新建笔记<span>＋</span>
-      </button>
-      <div className="context-separator" />
+      {kind === "folder" && (
+        <>
+          <button type="button" role="menuitem" onClick={onChild}>
+            <FolderPlus size={15} />
+            新建子目录<span>↳</span>
+          </button>
+          <button type="button" role="menuitem" onClick={onNote}>
+            <FileText size={15} />
+            在此新建笔记<span>＋</span>
+          </button>
+          <div className="context-separator" />
+        </>
+      )}
       <button type="button" role="menuitem" onClick={onRename}>
         <Pencil size={15} />
         重命名
       </button>
       <button type="button" role="menuitem" onClick={onMove}>
         <FolderInput size={15} />
-        移动目录
+        {kind === "note" ? "移动笔记" : "移动目录"}
       </button>
       <button
         type="button"
@@ -118,7 +124,7 @@ export function FolderContextMenu({
         onClick={onDelete}
       >
         <Trash2 size={15} />
-        删除目录
+        {kind === "note" ? "删除笔记" : "删除目录"}
       </button>
     </div>
   );

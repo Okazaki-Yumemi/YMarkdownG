@@ -214,6 +214,43 @@ class NativeStore {
     }
     return this.snapshot();
   }
+  renameNote(id, title) {
+    const task = this.queue
+      .catch(() => {})
+      .then(async () => {
+        const record = this.records.get(id);
+        if (!record) throw new Error("笔记不存在");
+        if (
+          typeof title !== "string" ||
+          !title.trim() ||
+          safeName(title) !== title.trim()
+        )
+          throw new Error("请输入有效文件名，不能包含路径分隔符或特殊字符");
+        const old = await this.unchanged(record);
+        const parts = record.path.split("/");
+        const oldName = parts.pop();
+        const name =
+          title.trim() + (/\.markdown$/i.test(oldName) ? ".markdown" : ".md");
+        const relative = [...parts, name].join("/");
+        if (relative === record.path) return this.snapshot();
+        const destination = path.join(
+          await this.resolve(parts.join("/")),
+          name,
+        );
+        await fs.link(old.target, destination);
+        try {
+          await this.unchanged(record);
+          await fs.unlink(old.target);
+        } catch (error) {
+          await fs.unlink(destination).catch(() => {});
+          throw error;
+        }
+        record.path = relative;
+        return this.snapshot();
+      });
+    this.queue = task;
+    return task;
+  }
   async createFolder(folder) {
     if (!folder) throw new Error("请输入目录名称");
     await this.resolve(folder, true);
