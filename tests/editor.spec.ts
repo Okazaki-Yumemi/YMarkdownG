@@ -1,3 +1,4 @@
+import { selectChoice } from "../scripts/select-choice.mjs";
 import { test, expect } from "@playwright/test";
 
 test("folder context menus inherit parents and support keyboard dismissal", async ({
@@ -21,7 +22,8 @@ test("folder context menus inherit parents and support keyboard dismissal", asyn
   await expect(child).toBeVisible();
   await child.click({ button: "right" });
   await page.getByRole("menuitem", { name: "在此新建笔记" }).click();
-  await expect(page.getByLabel("笔记存储目录")).toHaveValue(
+  await expect(page.getByLabel("笔记存储目录")).toHaveAttribute(
+    "data-value",
     "开始使用/学习/Markdown",
   );
   await page.getByLabel("笔记名称").fill("下级目录中的笔记");
@@ -89,10 +91,13 @@ test("appearance settings survive reload and focus mode exits", async ({
   page,
 }) => {
   await page.goto("/");
+  await page.getByTitle("设置", { exact: true }).click();
+  await page.getByRole("button", { name: "背景", exact: true }).click();
   await page.getByRole("button", { name: "暮色山野", exact: true }).click();
   await page.getByRole("button", { name: "排版", exact: true }).click();
   await page.getByLabel("字号", { exact: true }).fill("20");
-  await page.getByLabel("正文字体").selectOption("sans");
+  await selectChoice(page, "正文字体", "sans");
+  await page.keyboard.press("Escape");
   await page.reload();
   await expect(page.locator(".canvas")).toHaveClass(/bg-lavender/);
   await expect(page.locator(".document-shell")).toHaveClass(/font-sans/);
@@ -146,7 +151,7 @@ test("directory workspace creates nested folders and actual Markdown files", asy
   expect(content).toBe("# React 学习\n\n保存到真实目录");
   await page.getByTitle("更多操作").click();
   await page.getByRole("button", { name: "移动笔记", exact: true }).click();
-  await page.getByLabel("笔记存储目录").selectOption("");
+  await selectChoice(page, "笔记存储目录", "");
   await page.getByRole("button", { name: "确认移动", exact: true }).click();
   await expect(page.getByTitle("保存状态", { exact: true })).toContainText(
     "已保存到磁盘",
@@ -352,14 +357,20 @@ test("document library supports sorting and persisted list/card views", async ({
   page,
 }) => {
   await page.goto("/");
-  await page.getByLabel("文档排序").selectOption("title");
+  await selectChoice(page, "文档排序", "title");
   const titles = await page.locator(".note-card strong").allTextContents();
   expect(titles).toEqual(
     [...titles].sort((a, b) => a.localeCompare(b, "zh-CN")),
   );
   await expect(page.locator(".note-list")).toHaveClass(/document-list/);
-  await page.getByLabel("文档视图").selectOption("cards");
+  await selectChoice(page, "文档视图", "cards");
   await page.reload();
-  await expect(page.getByLabel("文档视图")).toHaveValue("cards");
-  await expect(page.getByLabel("文档排序")).toHaveValue("title");
+  await expect(page.getByLabel("文档视图")).toHaveAttribute(
+    "data-value",
+    "cards",
+  );
+  await expect(page.getByLabel("文档排序")).toHaveAttribute(
+    "data-value",
+    "title",
+  );
 });

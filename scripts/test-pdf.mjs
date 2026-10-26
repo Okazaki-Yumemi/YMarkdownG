@@ -15,7 +15,7 @@ await fs.writeFile(
 );
 await fs.writeFile(
   path.join(vault, "测试.md"),
-  "# 中文 PDF 测试\n\n**加粗内容**\n\n```typescript\nconst answer = 42;\n```\n\n| 标题 | 内容 |\n| --- | --- |\n| 测试 | 中文表格 |\n\n" +
+  "# 中文 PDF 测试\n\n行内 $E=mc^2$\n\n$$\n\\int_0^1 x^2 \\,dx=\\frac{1}{3}\n$$\n\n**加粗内容**\n\n```typescript\nconst answer = 42;\n```\n\n| 标题 | 内容 |\n| --- | --- |\n| 测试 | 中文表格 |\n\n" +
     Array.from({ length: 80 }, (_, i) => `段落 ${i}：中文长文分页测试。`).join(
       "\n\n",
     ),

@@ -1,3 +1,4 @@
+import { selectChoice } from "./select-choice.mjs";
 import { _electron as electron, expect } from "@playwright/test";
 import { createRequire } from "node:module";
 import fs from "node:fs/promises";
@@ -102,6 +103,7 @@ try {
   });
   await cdp.send("Input.insertText", { text: "中文输入" });
   await expect(page.locator(".markdown-body")).toContainText("中文输入");
+  await page.getByTitle("设置", { exact: true }).click();
   await page.getByRole("button", { name: "动效", exact: true }).click();
   await page.getByLabel("光标动画时长").fill("180");
   await page.getByLabel("打字反馈强度").fill("65");
@@ -143,6 +145,7 @@ try {
   await page.getByLabel("背景图片透明度").fill("45");
   await page.getByLabel("编辑区不透明度").fill("70");
   await expect(page.locator(".background-layer")).toHaveCSS("opacity", "0.55");
+  await page.keyboard.press("Escape");
   await page
     .getByRole("button", { name: "目录 DeepInfer", exact: true })
     .click({ button: "right" });
@@ -159,7 +162,8 @@ try {
     .getByRole("button", { name: "目录 DeepInfer/学习笔记", exact: true })
     .click({ button: "right" });
   await page.getByRole("menuitem", { name: "在此新建笔记" }).click();
-  await expect(page.getByLabel("笔记存储目录")).toHaveValue(
+  await expect(page.getByLabel("笔记存储目录")).toHaveAttribute(
+    "data-value",
     "DeepInfer/学习笔记",
   );
   await page.getByLabel("笔记名称").fill("右键创建笔记");
@@ -187,14 +191,32 @@ try {
     page.getByRole("button", { name: "目录 DeepInfer/已改名", exact: true }),
   ).toBeVisible();
   await context("DeepInfer/已改名", "移动目录");
-  await page.getByLabel("目标父目录").selectOption("");
+  await selectChoice(page, "目标父目录", "");
   await page.getByRole("button", { name: "确认", exact: true }).click();
   await expect(
     page.getByRole("button", { name: "目录 已改名", exact: true }),
   ).toBeVisible();
-  await page
-    .getByRole("button", { name: "目录 已改名", exact: true })
-    .dragTo(page.getByRole("button", { name: "目录 DeepInfer", exact: true }));
+  const dragFrom = page.getByRole("button", {
+    name: "目录 已改名",
+    exact: true,
+  });
+  const dragTo = page.getByRole("button", {
+    name: "目录 DeepInfer",
+    exact: true,
+  });
+  await expect(dragFrom).toHaveAttribute("draggable", "true");
+  const sourceBox = await dragFrom.boundingBox(),
+    targetBox = await dragTo.boundingBox();
+  const sx = sourceBox.x + sourceBox.width / 2,
+    sy = sourceBox.y + sourceBox.height / 2,
+    tx = targetBox.x + targetBox.width / 2,
+    ty = targetBox.y + targetBox.height / 2;
+  await page.mouse.move(sx, sy);
+  await page.mouse.down();
+  await page.mouse.move(sx + 12, sy + 3, { steps: 4 });
+  await page.mouse.move(tx, ty, { steps: 12 });
+  await page.mouse.move(tx + 1, ty + 1);
+  await page.mouse.up();
   await expect(
     page.getByRole("button", { name: "目录 DeepInfer/已改名", exact: true }),
   ).toBeVisible();
@@ -220,6 +242,7 @@ try {
       name.endsWith("已改名"),
     ),
   ).toBe(true);
+  await page.getByTitle("设置", { exact: true }).click();
   await page.getByRole("button", { name: "更新", exact: true }).click();
   await expect(page.locator(".update-version")).toContainText(
     require("../package.json").version,
@@ -246,6 +269,7 @@ try {
   } else {
     await expect(page.locator(".update-version")).toContainText("支持自动更新");
   }
+  await page.keyboard.press("Escape");
   await page.getByRole("button", { name: /^全部笔记/ }).click();
   await page.locator(".note-card").filter({ hasText: "桌面测试" }).click();
   await page.locator(".cm-content").click();
@@ -270,6 +294,8 @@ try {
     "中文输入",
   );
   await expect(running.page.locator(".canvas")).toHaveClass(/bg-custom/);
+  await running.page.getByTitle("设置", { exact: true }).click();
+  await running.page.getByRole("button", { name: "背景", exact: true }).click();
   await expect(running.page.getByLabel("背景图片透明度")).toHaveValue("45");
   await expect(running.page.getByLabel("编辑区不透明度")).toHaveValue("70");
   await expect(running.page.locator(".background-layer")).toHaveCSS(

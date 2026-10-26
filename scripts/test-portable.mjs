@@ -71,6 +71,8 @@ try {
         "base64",
       ),
     });
+  await page.getByTitle("设置", { exact: true }).click();
+  await page.getByRole("button", { name: "背景", exact: true }).click();
   await page.getByLabel("背景图片透明度").fill("55");
   await expect(page.locator(".background-layer")).toHaveCSS("opacity", "0.45");
   await expect
