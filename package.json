@@ -1,6 +1,6 @@
 {
   "name": "ymarkdowng",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "可自定义背景与排版的本地 Markdown 笔记编辑器",
   "scripts": {
     "dev": "node scripts/dev.mjs",
@@ -14,7 +14,10 @@
     "package:installer": "npm run build && electron-builder --win nsis --x64 --publish never",
     "test:desktop": "node scripts/test-desktop.mjs",
     "package:mac": "npm run build && electron-builder --mac dmg zip --publish never",
-    "package:linux": "npm run build && electron-builder --linux AppImage --x64 --publish never"
+    "package:linux": "npm run build && electron-builder --linux AppImage --x64 --publish never",
+    "test:pdf": "node scripts/test-pdf.mjs",
+    "test:sync": "node scripts/test-sync.mjs",
+    "test:libraries": "node scripts/test-libraries.mjs"
   },
   "keywords": [],
   "author": "Okazaki-Yumemi",

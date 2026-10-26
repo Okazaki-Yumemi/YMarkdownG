@@ -581,10 +581,11 @@ function App() {
   }, [workspace, folderBusy, renameBusy]);
   async function openWorkspace(reconnect = false, libraryId?: string) {
     if (window.desktop) {
-      await refreshWorkspace();
+      if (switchingWorkspace.current) return;
+      const refresh = refreshWorkspace();
       switchingWorkspace.current = true;
       try {
-        await refreshTask.current;
+        await refresh;
         if (workspace) {
           clearTimeout(diskTimer.current);
           await workspace.save(notesRef.current);
