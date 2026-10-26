@@ -203,23 +203,31 @@ try {
     ),
   ).toBe(true);
   await page.getByRole("button", { name: "更新", exact: true }).click();
-  await expect(page.locator(".update-version")).toContainText("0.2.1");
-  await app.evaluate(({ net }) => {
-    const original = net.fetch;
-    net.fetch = (url, options) =>
-      String(url).includes("api.github.com")
-        ? Promise.resolve(
-            new Response(JSON.stringify({ tag_name: "v99.0.0" }), {
-              status: 200,
-              headers: { "Content-Type": "application/json" },
-            }),
-          )
-        : original(url, options);
-  });
-  await page.getByRole("button", { name: "检查更新", exact: true }).click();
-  await expect(
-    page.getByRole("button", { name: "打开新版下载页", exact: true }),
-  ).toBeVisible();
+  await expect(page.locator(".update-version")).toContainText(
+    require("../package.json").version,
+  );
+  // The fake GitHub response covers the manual updater used by development/portable builds.
+  // Installed builds use electron-updater's separate transport; installation is not exercised here.
+  if ((await page.evaluate(() => window.desktop.updateState())).portable) {
+    await app.evaluate(({ net }) => {
+      const original = net.fetch;
+      net.fetch = (url, options) =>
+        String(url).includes("api.github.com")
+          ? Promise.resolve(
+              new Response(JSON.stringify({ tag_name: "v99.0.0" }), {
+                status: 200,
+                headers: { "Content-Type": "application/json" },
+              }),
+            )
+          : original(url, options);
+    });
+    await page.getByRole("button", { name: "检查更新", exact: true }).click();
+    await expect(
+      page.getByRole("button", { name: "打开新版下载页", exact: true }),
+    ).toBeVisible();
+  } else {
+    await expect(page.locator(".update-version")).toContainText("支持自动更新");
+  }
   await page.getByRole("button", { name: /^全部笔记/ }).click();
   await page.locator(".note-card").filter({ hasText: "桌面测试" }).click();
   await page.locator(".cm-content").click();
