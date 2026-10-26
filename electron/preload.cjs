@@ -14,6 +14,7 @@ contextBridge.exposeInMainWorld("desktop", {
   },
   restore: () => ipcRenderer.invoke("workspace:restore"),
   open: () => ipcRenderer.invoke("workspace:open"),
+  refresh: (id, notes) => ipcRenderer.invoke("workspace:refresh", id, notes),
   save: (id, notes) => ipcRenderer.invoke("workspace:save", id, notes),
   renameNote: (id, noteId, title) =>
     ipcRenderer.invoke("workspace:rename-note", id, noteId, title),

@@ -1239,3 +1239,21 @@ nav button.selected {
 .document-list .note-card strong {
   font-weight: 500;
 }
+
+.sync-notice {
+  border: 1px solid #b69558;
+  background: color-mix(in srgb, #b69558 10%, var(--sidebar));
+  padding: 8px;
+  font-size: 11px;
+  line-height: 1.6;
+  margin-bottom: 8px;
+  border-radius: 3px;
+}
+.sync-notice p {
+  margin: 0 0 5px;
+  overflow-wrap: anywhere;
+}
+.sync-notice button {
+  color: var(--accent);
+  font-size: 11px;
+}

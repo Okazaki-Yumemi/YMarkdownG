@@ -287,6 +287,12 @@ function App() {
   const [operationName, setOperationName] = useState("");
   const [operationParent, setOperationParent] = useState("");
   const [folderBusy, setFolderBusy] = useState(false);
+  const refreshTask = useRef<Promise<void> | null>(null);
+  const switchingWorkspace = useRef(false);
+  const workspaceRef = useRef(workspace);
+  workspaceRef.current = workspace;
+  const [syncMessage, setSyncMessage] = useState("");
+  const [syncError, setSyncError] = useState("");
   const structureTask = useRef<Promise<boolean> | null>(null);
   const dragEntry = useRef<{ kind: "folder" | "note"; id: string } | null>(
     null,
@@ -381,6 +387,7 @@ function App() {
       clearTimeout(diskTimer.current);
       void (async () => {
         try {
+          await refreshTask.current;
           await structureTask.current;
           if (workspace) await workspace.save(notesRef.current);
           window.desktop!.flushed(true);
@@ -418,8 +425,11 @@ function App() {
     setDiskStatus("saving");
     window.desktop?.setDirty(true);
     diskTimer.current = setTimeout(() => {
-      void workspace
-        .save(notes)
+      void (async () => {
+        await refreshTask.current;
+        if (workspaceRef.current === workspace)
+          await workspace.save(notesRef.current);
+      })()
         .then(() => {
           if (diskVersion.current === version) {
             setDiskStatus("saved");
@@ -447,9 +457,123 @@ function App() {
     window.addEventListener("beforeunload", handler);
     return () => window.removeEventListener("beforeunload", handler);
   }, [workspace, diskStatus]);
+  function refreshWorkspace(manual = false): Promise<void> {
+    if (
+      !(workspace instanceof DesktopWorkspace) ||
+      folderBusy ||
+      renameBusy ||
+      switchingWorkspace.current
+    )
+      return Promise.resolve();
+    if (refreshTask.current) return refreshTask.current;
+    const task = (async () => {
+      const captured = notesRef.current;
+      clearTimeout(diskTimer.current);
+      ++diskVersion.current;
+      try {
+        const result = await workspace.refresh(captured);
+        if (workspaceRef.current !== workspace) return;
+        const latest = notesRef.current;
+        const merged = [...result.notes];
+        const notices = [...result.notices];
+        // Preserve keystrokes entered while IPC was reading the disk.
+        if (latest !== captured) {
+          const before = new Map(captured.map((n) => [n.id, n]));
+          for (const current of latest) {
+            const previous = before.get(current.id);
+            if (
+              previous &&
+              JSON.stringify(previous) === JSON.stringify(current)
+            )
+              continue;
+            const index = merged.findIndex((n) => n.id === current.id);
+            if (
+              index >= 0 &&
+              previous &&
+              merged[index].content === previous.content &&
+              merged[index].folder === previous.folder
+            )
+              merged[index] = current;
+            else if (!previous && index < 0) merged.push(current);
+            else if (
+              previous &&
+              (current.content !== previous.content ||
+                current.folder !== previous.folder)
+            ) {
+              merged.push({
+                ...current,
+                id: crypto.randomUUID(),
+                title: `${current.title}（同步期间的本地副本）`,
+                folder: "冲突副本",
+              });
+              notices.push("同步期间的编辑已保存在“冲突副本”目录");
+            }
+          }
+          // A deletion made during the scan is applied only if the disk version stayed unchanged.
+          for (const previous of captured) {
+            if (latest.some((n) => n.id === previous.id)) continue;
+            const index = merged.findIndex(
+              (n) => n.id === previous.id && n.content === previous.content,
+            );
+            if (index >= 0) merged.splice(index, 1);
+          }
+        }
+        const changed = JSON.stringify(merged) !== JSON.stringify(latest);
+        if (changed) {
+          notesRef.current = merged;
+          setNotes(merged);
+        }
+        const nextFolders = [
+          ...new Set([
+            ...result.folders,
+            ...merged.map((n) => n.folder).filter(Boolean),
+          ]),
+        ].sort();
+        setFolders((previous) =>
+          JSON.stringify([...previous].sort()) === JSON.stringify(nextFolders)
+            ? previous
+            : nextFolders,
+        );
+        if (notices.length) setSyncMessage(notices.join("；"));
+        await workspace.save(merged);
+        if (
+          notesRef.current === merged ||
+          (!changed && notesRef.current === latest)
+        ) {
+          setDiskStatus("saved");
+          setDiskError("");
+          window.desktop?.setDirty(false);
+        }
+        setSyncError("");
+        if (manual) notify("已刷新文件夹");
+      } catch (error) {
+        setSyncError(`文件夹同步失败：${(error as Error).message}`);
+        if (manual) notify((error as Error).message);
+      }
+    })();
+    refreshTask.current = task;
+    void task.finally(() => {
+      if (refreshTask.current === task) refreshTask.current = null;
+    });
+    return task;
+  }
+  useEffect(() => {
+    if (!(workspace instanceof DesktopWorkspace)) return;
+    const refresh = () => {
+      void refreshWorkspace();
+    };
+    const timer = setInterval(refresh, 3000);
+    window.addEventListener("focus", refresh);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener("focus", refresh);
+    };
+  }, [workspace, folderBusy, renameBusy]);
   async function openWorkspace(reconnect = false) {
     if (window.desktop) {
+      switchingWorkspace.current = true;
       try {
+        await refreshTask.current;
         if (workspace) {
           clearTimeout(diskTimer.current);
           await workspace.save(notesRef.current);
@@ -473,6 +597,8 @@ function App() {
         notify(`已打开 ${data.root}`);
       } catch (error) {
         notify(`打开失败：${(error as Error).message}`);
+      } finally {
+        switchingWorkspace.current = false;
       }
       return;
     }
@@ -577,6 +703,7 @@ function App() {
     if (folderBusy) return false;
     try {
       setFolderBusy(true);
+      await refreshTask.current;
       clearTimeout(diskTimer.current);
       ++diskVersion.current;
       if (workspace) await workspace.save(notesRef.current);
@@ -746,6 +873,7 @@ function App() {
     const title = renameTitle.trim();
     if (!title || /[<>:"/\\|?*]/.test(title)) return notify("请输入有效文件名");
     setRenameBusy(true);
+    await refreshTask.current;
     clearTimeout(diskTimer.current);
     ++diskVersion.current;
     try {
@@ -1134,6 +1262,14 @@ function App() {
           </nav>
           <div className="section-label">
             EXPLORER / 目录
+            {workspace instanceof DesktopWorkspace && (
+              <button
+                title="刷新已收录文件夹"
+                onClick={() => void refreshWorkspace(true)}
+              >
+                <RotateCcw size={13} />
+              </button>
+            )}
             <button title="新建目录" onClick={() => openFolderDialog()}>
               <Plus size={15} />
             </button>
@@ -1250,6 +1386,19 @@ function App() {
             {filter === "starred" ? "收藏的笔记" : "我的笔记"}
             <span>{visible.length}</span>
           </div>
+          {(syncMessage || syncError) && (
+            <div className="sync-notice" role="status">
+              <p>{syncError || syncMessage}</p>
+              <button
+                onClick={() => {
+                  setSyncMessage("");
+                  if (syncError) void refreshWorkspace(true);
+                }}
+              >
+                {syncError ? "重试" : "知道了"}
+              </button>
+            </div>
+          )}
           <div className="library-controls">
             <select
               aria-label="文档排序"

@@ -66,10 +66,13 @@ class NativeStore {
     if (stat.size > MAX_SIZE) throw new Error(`文件超过 5 MB：${relative}`);
     return { target, stat, content: await fs.readFile(target, "utf8") };
   }
-  async load() {
+  async scan() {
     const notes = [];
     const folders = [];
-    this.records.clear();
+    const records = new Map();
+    const existing = new Map(
+      [...this.records].map(([id, entry]) => [entry.path, id]),
+    );
     const walk = async (prefix, depth) => {
       if (depth > 24) throw new Error("笔记目录超过 24 层");
       const dir = await this.resolve(prefix);
@@ -88,7 +91,7 @@ class NativeStore {
           if (notes.length >= 2000)
             throw new Error("笔记超过 2000 篇，请选择更小的空间");
           const { content, stat } = await this.file(relative);
-          const id = randomUUID();
+          const id = existing.get(relative) || randomUUID();
           notes.push({
             id,
             title:
@@ -99,12 +102,81 @@ class NativeStore {
             starred: false,
             folder: prefix,
           });
-          this.records.set(id, { path: relative, content });
+          records.set(id, { path: relative, content });
         }
       }
     };
     await walk("", 0);
-    return this.snapshot({ notes, folders });
+    return { notes, folders, records };
+  }
+  async load() {
+    const data = await this.scan();
+    this.records = data.records;
+    return this.snapshot({ notes: data.notes, folders: data.folders });
+  }
+  refresh(notes) {
+    const task = this.queue
+      .catch(() => {})
+      .then(async () => {
+        const disk = await this.scan();
+        const local = new Map(notes.map((n) => [n.id, n]));
+        const remote = new Map(disk.notes.map((n) => [n.id, n]));
+        const result = [];
+        const notices = [];
+        for (const [id, base] of this.records) {
+          const own = local.get(id),
+            other = remote.get(id);
+          const ownChanged =
+            !own ||
+            own.content !== base.content ||
+            own.folder !== base.path.split("/").slice(0, -1).join("/");
+          const otherChanged = !other || other.content !== base.content;
+          if (
+            ownChanged &&
+            otherChanged &&
+            !(
+              own &&
+              other &&
+              own.content === other.content &&
+              own.folder === other.folder
+            )
+          ) {
+            if (other)
+              result.push({ ...other, starred: own?.starred || false });
+            if (own) {
+              result.push({
+                ...own,
+                id: randomUUID(),
+                title: `${own.title}（本地冲突副本）`,
+                folder: "冲突副本",
+                updated: Date.now(),
+              });
+              notices.push(
+                `外部修改冲突：${base.path}，本地编辑已保存在“冲突副本”目录`,
+              );
+            } else notices.push(`外部修改的文档已保留：${base.path}`);
+          } else if (ownChanged) {
+            if (own) result.push(own);
+          } else if (other)
+            result.push({ ...other, starred: own?.starred || false });
+          local.delete(id);
+          remote.delete(id);
+        }
+        result.push(...remote.values(), ...local.values());
+        this.records = disk.records;
+        return this.snapshot({
+          notes: result,
+          folders: [
+            ...new Set([
+              ...disk.folders,
+              ...result.map((n) => n.folder).filter(Boolean),
+            ]),
+          ],
+          notices,
+        });
+      });
+    this.queue = task;
+    return task;
   }
   snapshot(extra = {}) {
     return {
@@ -118,7 +190,7 @@ class NativeStore {
     const current = await this.file(entry.path);
     if (current.content !== entry.content)
       throw new Error(
-        `检测到外部修改：${entry.path}。已暂停写入，请导出当前笔记后重新打开空间。`,
+        `检测到外部修改：${entry.path}。正在保留双方内容，请刷新文件夹。`,
       );
     return current;
   }

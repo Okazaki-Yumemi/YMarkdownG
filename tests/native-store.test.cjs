@@ -131,3 +131,52 @@ test("note rename changes filename and rejects collisions", async () => {
   await assert.rejects(store.renameNote("a", "测试 (1)"), /EEXIST/);
   await assert.rejects(store.renameNote("a", "../escape"), /有效文件名/);
 });
+
+test("refresh merges external edits, additions and removals without changing stable IDs", async () => {
+  const { dir, store } = await fixture();
+  await store.load();
+  await store.save([note("a"), note("b", "unchanged")]);
+  await fs.writeFile(
+    path.join(dir, store.snapshot().paths.a),
+    "# 外部标题\n外部内容",
+  );
+  await fs.unlink(path.join(dir, store.snapshot().paths.b));
+  await fs.writeFile(path.join(dir, "新增.md"), "新增文件");
+  const data = await store.refresh([note("a"), note("b", "unchanged")]);
+  assert.equal(
+    data.notes.find((n) => n.id === "a").content,
+    "# 外部标题\n外部内容",
+  );
+  assert.equal(
+    data.notes.some((n) => n.id === "b"),
+    false,
+  );
+  assert.equal(data.notes.length, 2);
+  await store.save(data.notes);
+  assert.equal((await store.refresh(data.notes)).notices.length, 0);
+});
+test("simultaneous edits and external deletion preserve local conflict copies", async () => {
+  const { dir, store } = await fixture();
+  await store.load();
+  await store.save([note("a")]);
+  await fs.writeFile(path.join(dir, store.snapshot().paths.a), "remote");
+  let data = await store.refresh([note("a", "local")]);
+  assert.equal(data.notes.find((n) => n.id === "a").content, "remote");
+  const copy = data.notes.find((n) => n.id !== "a");
+  assert.equal(copy.content, "local");
+  assert.equal(copy.folder, "冲突副本");
+  await store.save(data.notes);
+  assert.equal(
+    await fs.readFile(path.join(dir, store.snapshot().paths[copy.id]), "utf8"),
+    "local",
+  );
+  await fs.unlink(path.join(dir, store.snapshot().paths.a));
+  data = await store.refresh(
+    data.notes.map((n) =>
+      n.id === "a" ? { ...n, content: "local after deletion" } : n,
+    ),
+  );
+  await store.save(data.notes);
+  assert.ok(data.notes.some((n) => n.content === "local after deletion"));
+  assert.ok(!data.notes.some((n) => n.id === "a"));
+});

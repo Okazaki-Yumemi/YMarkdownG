@@ -21,6 +21,15 @@ declare global {
       onUpdate(callback: (state: UpdateState) => void): () => void;
       restore(): Promise<DesktopData>;
       open(): Promise<DesktopData | null>;
+      refresh(
+        id: string,
+        notes: StoredNote[],
+      ): Promise<{
+        notes: StoredNote[];
+        folders: string[];
+        paths: Record<string, string>;
+        notices: string[];
+      }>;
       save(
         id: string,
         notes: StoredNote[],
@@ -65,6 +74,11 @@ export class DesktopWorkspace {
   }
   pathFor(id: string) {
     return this.paths[id];
+  }
+  async refresh(notes: StoredNote[]) {
+    const result = await window.desktop!.refresh(this.id, notes);
+    this.paths = result.paths;
+    return result;
   }
   async save(notes: StoredNote[]) {
     const result = await window.desktop!.save(this.id, notes);

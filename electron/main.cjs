@@ -87,6 +87,7 @@ register("workspace:open", async () => {
   });
   return result.canceled ? null : openRoot(result.filePaths[0]);
 });
+register("workspace:refresh", (id, notes) => getStore(id).refresh(notes));
 register("workspace:save", (id, notes) => getStore(id).save(notes));
 register("workspace:rename-note", (id, noteId, title) =>
   getStore(id).renameNote(noteId, title),
