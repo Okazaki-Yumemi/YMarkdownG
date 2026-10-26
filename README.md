@@ -29,6 +29,10 @@
 
 选择 **所见即所得**，直接修改标题、正文、列表和表格。输入 `$…$` 会渲染行内公式，双击公式可以修改 LaTeX。源码、分屏、阅读模式仍然保留，切换模式本身不会改写原 Markdown。
 
+光标进入标题或强调文字时显示 Markdown 语法提示；点击提示、选择“当前块源码”，或按 `Alt + Enter`，可以就地修改当前段落、列表、代码或公式所在块的 Markdown。`Ctrl / Cmd + Enter` 应用，`Esc` 取消，点击外侧自动应用。普通编辑会尽量复用未改动块的原始写法，保留列表符号、代码围栏和公式分隔符。
+
+<p align="center"><img src="docs/images/block-source.png" width="1000" alt="真实桌面截图：就地修改 Markdown 块源码" /></p>
+
 <p align="center"><img src="docs/images/wysiwyg.png" width="1100" alt="真实桌面截图：所见即所得、可编辑表格、数学公式与代码" /></p>
 
 ### 熟悉的主题，独立的设置
@@ -38,6 +42,10 @@
 <p align="center"><img src="docs/images/settings.png" width="1000" alt="独立设置浮窗和常用主题配色" /></p>
 
 主题来源与许可证见 [第三方声明](THIRD_PARTY_NOTICES.md)。
+
+### 减少重复打包
+
+v0.5.0 将已编译的渲染端依赖从运行时包中移除，所见即所得按需加载，并在构建时检查体积。Windows 本机构建的应用档案从约 79 MB 降到 11 MB；便携版约 113 MB，安装版约 125 MB。完整发行包仍包含 Electron 运行时。详情见 [版本说明](.github/release-notes/v0.5.0.md)。
 
 ### 写作，也可以很有手感
 
@@ -101,6 +109,8 @@
 | `Ctrl / Cmd + P`         | 快速打开笔记       |
 | `Ctrl / Cmd + S`         | 立即保存           |
 | `Ctrl / Cmd + B / I`     | 粗体 / 斜体        |
+| `Alt + Enter`            | 编辑当前块源码     |
+| `Ctrl / Cmd + Enter`     | 应用块源码修改     |
 | `Ctrl / Cmd + Shift + F` | 专注模式           |
 | `Esc`                    | 退出专注或关闭弹窗 |
 
@@ -109,7 +119,7 @@
 <details>
 <summary><b>当前边界与发行说明</b></summary>
 
-- 所见即所得支持常见 Markdown、表格和公式。未支持的原始 HTML 作为原文块保留；实际编辑会规范化 Markdown 格式，暂不提供 Vim 模态操作。
+- 所见即所得支持常见 Markdown、表格和公式。未改动块会尽量保留原文，已改动块会规范化；复杂结构无法可靠映射时会退回标准序列化，不承诺所有语法逐字往返。未支持的原始 HTML 作为原文块保留，暂不提供 Vim 模态操作。
 - Windows 和 macOS 发行包暂未代码签名，macOS 尚未公证，该版本 macOS 更新采用手动下载。
 - 跨版本自动安装流程尚未完成真实升级的端到端验证。
 - 外部变化每约 3 秒及窗口重新获得焦点时刷新；冲突会保留双方版本，不执行逐行文本合并。

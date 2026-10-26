@@ -4,7 +4,7 @@
 
 ## 直接使用
 
-Windows x64 便携版：运行 `release/YMarkdownG-0.4.0-Windows-x64.exe`，无需安装 Node.js。也可以运行解包目录中的 `release/win-unpacked/YMarkdownG.exe`，解包目录的其他文件须一起保留。
+Windows x64 便携版：运行 `release/YMarkdownG-0.5.0-Windows-x64.exe`，无需安装 Node.js。也可以运行解包目录中的 `release/win-unpacked/YMarkdownG.exe`，解包目录的其他文件须一起保留。
 
 首次启动自动创建并打开系统“文档”目录下的 `YMarkdownG` 文件夹。点击左上角笔记空间按钮，可通过系统对话框选择其他本地文件夹，之后启动会恢复该空间。工作区菜单可以在文件管理器中打开当前目录。
 
@@ -83,7 +83,7 @@ Electron 主进程负责原生对话框与磁盘操作，隔离的 preload 提�
 
 ## 当前边界
 
-- 支持所见即所得、源码、分屏和阅读四种模式。所见即所得使用 Tiptap / ProseMirror，保存时规范化 Markdown；切换模式不触发保存格式转换。未支持的原始 HTML 保留为不执行的原文块。尚未实现 Vim 模态操作。
+- 支持所见即所得、源码、分屏和阅读四种模式。所见即所得使用 Tiptap / ProseMirror，尽量保留未改动块的原文，改动块会规范化；复杂结构不能可靠映射时退回标准序列化；切换模式不触发保存格式转换。未支持的原始 HTML 保留为不执行的原文块。尚未实现 Vim 模态操作。
 - Windows x64 已进行本机运行验证；macOS 双架构和 Linux x64 在对应 GitHub 原生环境构建。发行包暂未签名，macOS 未公证。
 - 单个空间最多读取 2000 篇、24 层目录，单篇笔记上限 5 MB。跳过隐藏目录和 `node_modules`。
 - 背景图片支持 JPG、PNG、WebP、GIF，不设固定体积限制。
@@ -123,3 +123,11 @@ macOS 构建命令：npm run package:mac -- --arm64 或 --x64。Linux：npm run 
 - `ymg-note:` 协议仅提供已打开空间中的普通栅格图片，并验证文件头。内部移动 Markdown 时复制其引用的托管图片，避免破坏原目录中其他笔记的引用。
 - 开发版 Web 回退入口粘贴图片使用数据 URL；同目录文件管理是桌面版功能。
 - 新增 `npm run test:rich` 和 `npm run test:images`。图片测试使用真实系统剪贴板并恢复测试前内容；支持传入解包程序路径，例如 `node scripts/test-images.mjs release/win-unpacked/YMarkdownG.exe`。
+
+## 块源码与打包体积
+
+`src/rich-source.ts` 保存经过结构验证的顶层块源码映射；编辑后按节点结构复用未改动的块，不能安全映射时采用常规序列化。节点签名使用 WeakMap 缓存，匹配使用队列，避免每次输入做所有块两两比较。它提供的是块级格式保留，尚不是任意 Markdown 的无损编辑器。
+
+`src/rich-syntax.ts` 使用 ProseMirror decoration 和 CSS 生成语法提示，提示不进入文档模型、文件或复制文本。`Alt+Enter` 打开的块源码草稿通过退出保存握手提交，草稿开启时暂停外部刷新。
+
+仅 `electron-updater`、`semver`、`katex` 保持为生产依赖；其他渲染端模块已经由 Vite 编译进 dist，属于构建依赖。请不要使用 `npm install --omit=dev` 来构建源代码。`scripts/audit-package.cjs` 在所有平台的 afterPack 阶段检查档案：不重复携带渲染依赖、包含 PDF 字体与更新器、app.asar 不超过 24 MiB。Electron 运行时仍是完整桌面发行包体积的主要组成。
