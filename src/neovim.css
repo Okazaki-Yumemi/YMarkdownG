@@ -1157,3 +1157,48 @@ nav button.selected {
     font-size: var(--editor-size);
   }
 }
+
+/* Explorer hierarchy: separate disclosure and selection targets. */
+.folders .tree-row {
+  display: flex;
+  align-items: center;
+  min-height: 30px;
+  position: relative;
+}
+.folders .tree-toggle {
+  flex: 0 0 19px;
+  width: 19px;
+  padding: 4px 0;
+  margin: 0;
+  justify-content: center;
+  border: 0;
+  color: var(--muted);
+  background: transparent;
+}
+.folders .tree-toggle:disabled {
+  visibility: hidden;
+}
+.folders .tree-folder {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+  margin: 1px 0;
+  padding: 6px 8px 6px 2px;
+  gap: 8px;
+  border-radius: 2px;
+}
+.tree-row::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  border-left: 1px solid var(--border);
+  opacity: 0.4;
+  pointer-events: none;
+}
+.folders .tree-folder span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

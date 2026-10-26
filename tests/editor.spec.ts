@@ -302,7 +302,9 @@ test("imports Markdown, copies code and persists uploaded backgrounds", async ({
   await expect(page.locator(".markdown-body h1")).toHaveText("导入代码");
 });
 
-test("note context menu renames the selected document and exposes move and delete", async ({ page }) => {
+test("note context menu renames the selected document and exposes move and delete", async ({
+  page,
+}) => {
   await page.goto("/");
   const card = page.locator(".note-card").first();
   await card.click({ button: "right" });
@@ -316,4 +318,32 @@ test("note context menu renames the selected document and exposes move and delet
   await expect(page.getByRole("menuitem", { name: "删除笔记" })).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(card).toBeFocused();
+});
+
+test("explorer collapses nested directories and remembers disclosure state", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page.getByTitle("新建目录", { exact: true }).click();
+  await page.getByLabel("目录路径").fill("研究/资料/书籍");
+  await page.getByRole("button", { name: "创建目录", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "目录 研究/资料/书籍", exact: true }),
+  ).toBeVisible();
+  await page
+    .getByRole("button", { name: "折叠目录 研究", exact: true })
+    .click();
+  await expect(
+    page.getByRole("button", { name: "目录 研究/资料", exact: true }),
+  ).toHaveCount(0);
+  await page.reload();
+  await expect(
+    page.getByRole("button", { name: "展开目录 研究", exact: true }),
+  ).toBeVisible();
+  await page
+    .getByRole("button", { name: "展开目录 研究", exact: true })
+    .click();
+  await expect(
+    page.getByRole("button", { name: "目录 研究/资料/书籍", exact: true }),
+  ).toBeVisible();
 });

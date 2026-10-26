@@ -20,6 +20,7 @@ import {
   PanelLeft,
   Settings2,
   ChevronDown,
+  ChevronRight,
   FileText,
   Star,
   Clock3,
@@ -214,6 +215,43 @@ function App() {
   const [folders, setFolders] = useState<string[]>(() =>
     window.desktop ? [] : read("ymg-folders", ["开始使用", "日常随记"]),
   );
+  const [collapsedFolders, setCollapsedFolders] = useState<
+    Record<string, boolean>
+  >(() => read("ymg-collapsed-folders", {}));
+  const treeKey =
+    workspace instanceof DesktopWorkspace
+      ? workspace.fullPath
+      : workspace?.root.name || "browser";
+  const folderKey = (f: string) => `${treeKey}:${f}`;
+  const treeFolders = Array.from(
+    new Set(
+      [...folders, ...notes.map((n) => n.folder)].flatMap((f) =>
+        f.split("/").map((_, i, parts) => parts.slice(0, i + 1).join("/")),
+      ),
+    ),
+  )
+    .filter(Boolean)
+    .sort((a, b) => a.localeCompare(b, "zh-CN"));
+  useEffect(() => {
+    localStorage.setItem(
+      "ymg-collapsed-folders",
+      JSON.stringify(collapsedFolders),
+    );
+  }, [collapsedFolders]);
+  useEffect(() => {
+    if (["all", "recent", "starred"].includes(filter)) return;
+    setCollapsedFolders((previous) => {
+      const next = { ...previous };
+      const parts = filter.split("/");
+      parts
+        .slice(0, -1)
+        .forEach(
+          (_, i) =>
+            delete next[`${treeKey}:${parts.slice(0, i + 1).join("/")}`],
+        );
+      return next;
+    });
+  }, [filter, treeKey]);
   const [folderDialog, setFolderDialog] = useState(false);
   const [folderName, setFolderName] = useState("");
   const [folderParent, setFolderParent] = useState("");
@@ -1081,71 +1119,100 @@ function App() {
               <FolderOpen size={16} />
               <span>/ 根目录</span>
             </button>
-            {Array.from(new Set([...folders, ...notes.map((n) => n.folder)]))
-              .filter(Boolean)
-              .sort()
+            {treeFolders
+              .filter(
+                (f) =>
+                  !f
+                    .split("/")
+                    .slice(0, -1)
+                    .some(
+                      (_, i, parts) =>
+                        collapsedFolders[
+                          folderKey(parts.slice(0, i + 1).join("/"))
+                        ],
+                    ),
+              )
               .map((f) => (
-                <button
+                <div
+                  className="tree-row"
                   key={f}
-                  aria-label={`目录 ${f}`}
-                  className={`${filter === f ? "selected" : ""} ${dropTarget === f ? "drop-target" : ""}`}
-                  draggable={!folderBusy}
-                  onDragStart={(e) => startDrag(e, "folder", f)}
-                  onDragEnd={() => {
-                    dragEntry.current = null;
-                    setDropTarget(null);
-                  }}
-                  onDragOver={(e) => dragOver(e, f)}
-                  onDrop={(e) => dropInto(e, f)}
-                  onDragLeave={(e) => {
-                    if (!e.currentTarget.contains(e.relatedTarget as Node))
+                  style={{ paddingLeft: (f.split("/").length - 1) * 14 }}
+                >
+                  <button
+                    className="tree-toggle"
+                    aria-label={`${collapsedFolders[folderKey(f)] ? "展开" : "折叠"}目录 ${f}`}
+                    aria-expanded={!collapsedFolders[folderKey(f)]}
+                    disabled={
+                      !treeFolders.some((child) => child.startsWith(`${f}/`))
+                    }
+                    onClick={() =>
+                      setCollapsedFolders((previous) => ({
+                        ...previous,
+                        [folderKey(f)]: !previous[folderKey(f)],
+                      }))
+                    }
+                  >
+                    {collapsedFolders[folderKey(f)] ? (
+                      <ChevronRight size={14} />
+                    ) : (
+                      <ChevronDown size={14} />
+                    )}
+                  </button>
+                  <button
+                    aria-label={`目录 ${f}`}
+                    className={`tree-folder ${filter === f ? "selected" : ""} ${dropTarget === f ? "drop-target" : ""}`}
+                    draggable={!folderBusy}
+                    onDragStart={(e) => startDrag(e, "folder", f)}
+                    onDragEnd={() => {
+                      dragEntry.current = null;
                       setDropTarget(null);
-                  }}
-                  onClick={() => setFilter(f)}
-                  onContextMenu={(event) => {
-                    event.preventDefault();
-                    folderTrigger.current = event.currentTarget;
-                    setFilter(f);
-                    setFolderMenu({
-                      folder: f,
-                      x: event.clientX,
-                      y: event.clientY,
-                    });
-                  }}
-                  onKeyDown={(event) => {
-                    if (
-                      event.key === "ContextMenu" ||
-                      (event.shiftKey && event.key === "F10")
-                    ) {
+                    }}
+                    onDragOver={(e) => dragOver(e, f)}
+                    onDrop={(e) => dropInto(e, f)}
+                    onDragLeave={(e) => {
+                      if (!e.currentTarget.contains(e.relatedTarget as Node))
+                        setDropTarget(null);
+                    }}
+                    onClick={() => setFilter(f)}
+                    onContextMenu={(event) => {
                       event.preventDefault();
                       folderTrigger.current = event.currentTarget;
-                      const rect = event.currentTarget.getBoundingClientRect();
                       setFilter(f);
                       setFolderMenu({
                         folder: f,
-                        x: rect.left + 20,
-                        y: rect.bottom,
+                        x: event.clientX,
+                        y: event.clientY,
                       });
-                    }
-                  }}
-                >
-                  <FolderOpen size={16} />
-                  <span
-                    title={f}
-                    style={{
-                      paddingLeft: Math.max(0, f.split("/").length - 1) * 10,
+                    }}
+                    onKeyDown={(event) => {
+                      if (
+                        event.key === "ContextMenu" ||
+                        (event.shiftKey && event.key === "F10")
+                      ) {
+                        event.preventDefault();
+                        folderTrigger.current = event.currentTarget;
+                        const rect =
+                          event.currentTarget.getBoundingClientRect();
+                        setFilter(f);
+                        setFolderMenu({
+                          folder: f,
+                          x: rect.left + 20,
+                          y: rect.bottom,
+                        });
+                      }
                     }}
                   >
-                    {f.split("/").pop()}
-                  </span>
-                  <small>
-                    {
-                      notes.filter(
-                        (n) => n.folder === f || n.folder.startsWith(`${f}/`),
-                      ).length
-                    }
-                  </small>
-                </button>
+                    <FolderOpen size={16} />
+                    <span title={f}>{f.split("/").pop()}</span>
+                    <small>
+                      {
+                        notes.filter(
+                          (n) => n.folder === f || n.folder.startsWith(`${f}/`),
+                        ).length
+                      }
+                    </small>
+                  </button>
+                </div>
               ))}
           </div>
           <div className="section-label note-label">
