@@ -347,3 +347,19 @@ test("explorer collapses nested directories and remembers disclosure state", asy
     page.getByRole("button", { name: "目录 研究/资料/书籍", exact: true }),
   ).toBeVisible();
 });
+
+test("document library supports sorting and persisted list/card views", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page.getByLabel("文档排序").selectOption("title");
+  const titles = await page.locator(".note-card strong").allTextContents();
+  expect(titles).toEqual(
+    [...titles].sort((a, b) => a.localeCompare(b, "zh-CN")),
+  );
+  await expect(page.locator(".note-list")).toHaveClass(/document-list/);
+  await page.getByLabel("文档视图").selectOption("cards");
+  await page.reload();
+  await expect(page.getByLabel("文档视图")).toHaveValue("cards");
+  await expect(page.getByLabel("文档排序")).toHaveValue("title");
+});

@@ -191,6 +191,16 @@ function App() {
   const [activeId, setActiveId] = useState(() => read("ymg-active", "welcome"));
   const [mode, setMode] = useState<"split" | "edit" | "preview">("split");
   const [filter, setFilter] = useState("all");
+  const [documentView, setDocumentView] = useState(() =>
+    read("ymg-document-view", "list"),
+  );
+  const [documentSort, setDocumentSort] = useState(() =>
+    read("ymg-document-sort", "updated"),
+  );
+  useEffect(() => {
+    localStorage.setItem("ymg-document-view", JSON.stringify(documentView));
+    localStorage.setItem("ymg-document-sort", JSON.stringify(documentSort));
+  }, [documentView, documentSort]);
   const [query, setQuery] = useState("");
   const [appearance, setAppearance] = useState(() => innerWidth > 960);
   const [sidebar, setSidebar] = useState(() => innerWidth > 650);
@@ -950,7 +960,14 @@ function App() {
             : n.folder === filter || n.folder.startsWith(`${filter}/`))) &&
         `${n.title} ${n.content}`.toLowerCase().includes(query.toLowerCase()),
     )
-    .sort((a, b) => b.updated - a.updated);
+    .sort((a, b) =>
+      documentSort === "title"
+        ? a.title.localeCompare(b.title, "zh-CN")
+        : documentSort === "folder"
+          ? a.folder.localeCompare(b.folder, "zh-CN") ||
+            a.title.localeCompare(b.title, "zh-CN")
+          : b.updated - a.updated,
+    );
   const headings = (note?.content || "")
     .split("\n")
     .map((line, index) => ({ match: line.match(/^(#{1,3})\s+(.+)$/), index }))
@@ -1233,9 +1250,31 @@ function App() {
             {filter === "starred" ? "收藏的笔记" : "我的笔记"}
             <span>{visible.length}</span>
           </div>
-          <div className="note-list">
+          <div className="library-controls">
+            <select
+              aria-label="文档排序"
+              value={documentSort}
+              onChange={(e) => setDocumentSort(e.target.value)}
+            >
+              <option value="updated">最近修改</option>
+              <option value="title">标题 A–Z</option>
+              <option value="folder">所在目录</option>
+            </select>
+            <select
+              aria-label="文档视图"
+              value={documentView}
+              onChange={(e) => setDocumentView(e.target.value)}
+            >
+              <option value="list">文档列表</option>
+              <option value="cards">摘要卡片</option>
+            </select>
+          </div>
+          <div
+            className={`note-list ${documentView === "list" ? "document-list" : ""}`}
+          >
             {visible.map((n) => (
               <button
+                title={`${workspace?.pathFor(n.id) || [n.folder, n.title + ".md"].filter(Boolean).join("/")} · ${new Date(n.updated).toLocaleString("zh-CN")}`}
                 className={`note-card ${note?.id === n.id ? "active" : ""}`}
                 draggable={!folderBusy}
                 onDragStart={(e) => startDrag(e, "note", n.id)}
