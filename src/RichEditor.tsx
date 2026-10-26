@@ -321,6 +321,9 @@ export const RichEditor = forwardRef<
     return () => observer.disconnect();
   }, [!!blockSource]);
   useEffect(() => {
+    if (blockSource) sourcePanel.current?.scrollIntoView({ block: "nearest" });
+  }, [sourceHeight, !!blockSource]);
+  useEffect(() => {
     if (!editor || value === lastValue.current) return;
     lastValue.current = value;
     const selection = editor.state.selection;
@@ -470,7 +473,13 @@ export const RichEditor = forwardRef<
             <div
               ref={sourcePanel}
               className="block-source-editor"
-              style={{ top: blockSource.top, minHeight: blockSource.height }}
+              style={{
+                top: blockSource.top,
+                minHeight: Math.min(
+                  blockSource.height,
+                  window.innerHeight * 0.55,
+                ),
+              }}
             >
               <style>{`.rich-document > :nth-child(${blockSource.index + 1}) { visibility: hidden; min-height: ${sourceHeight}px; }`}</style>
               <textarea
@@ -478,7 +487,13 @@ export const RichEditor = forwardRef<
                 aria-label="当前块 Markdown"
                 spellCheck={false}
                 value={blockSource.text}
-                style={{ minHeight: Math.max(100, blockSource.height) }}
+                style={{
+                  minHeight: 100,
+                  height: Math.min(
+                    Math.max(100, blockSource.height),
+                    window.innerHeight * 0.45,
+                  ),
+                }}
                 onChange={(event) => {
                   setBlockSource({ ...blockSource, text: event.target.value });
                   window.desktop?.setDirty(true);

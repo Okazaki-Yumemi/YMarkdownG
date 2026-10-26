@@ -138,6 +138,13 @@ try {
   await page.keyboard.press("Alt+Enter");
   const blockInput = page.getByLabel("当前块 Markdown", { exact: true });
   await blockInput.fill((await blockInput.inputValue()) + " 保存块草稿");
+  await expect(
+    page.getByRole("button", { name: "应用", exact: true }),
+  ).toBeInViewport();
+  await page.screenshot({
+    path: path.join(run, "block-source.png"),
+    scale: "css",
+  });
   await blockInput.press("Control+s");
   await expect.poll(() => fs.readFile(file, "utf8")).toContain("保存块草稿");
   await page

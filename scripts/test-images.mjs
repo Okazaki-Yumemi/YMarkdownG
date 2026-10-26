@@ -61,37 +61,65 @@ try {
     errors.push(e.message);
     console.log("IMAGE ERROR", e.message);
   });
-  await app.evaluate(async ({ clipboard, ClipboardItem }, base64) => {
-    const previous = await clipboard.read();
-    globalThis.__ymgClipboardBackup = await Promise.all(
-      previous.map(
-        async (item) =>
-          new ClipboardItem(
-            Object.fromEntries(
-              await Promise.all(
-                item.types.map(async (type) => [
-                  type,
-                  await item.getType(type),
-                ]),
+  const systemClipboard = await app.evaluate(
+    async ({ clipboard, ClipboardItem }, base64) => {
+      const previous = await clipboard.read();
+      // Some Windows clipboard formats cannot be round-tripped through Electron.
+      // Leave those untouched and exercise the same paste handler with an event.
+      if (previous.some((item) => !item.types.length)) return false;
+      globalThis.__ymgClipboardBackup = await Promise.all(
+        previous.map(
+          async (item) =>
+            new ClipboardItem(
+              Object.fromEntries(
+                await Promise.all(
+                  item.types.map(async (type) => [
+                    type,
+                    await item.getType(type),
+                  ]),
+                ),
               ),
             ),
-          ),
-      ),
-    );
-    await clipboard.write([
-      new ClipboardItem({
-        "image/png": new Blob([Buffer.from(base64, "base64")], {
-          type: "image/png",
+        ),
+      );
+      await clipboard.write([
+        new ClipboardItem({
+          "image/png": new Blob([Buffer.from(base64, "base64")], {
+            type: "image/png",
+          }),
         }),
-      }),
-    ]);
-  }, bytes.toString("base64"));
-  expect(
-    await app.evaluate(async ({ clipboard }) => clipboard.has("image/png")),
-  ).toBe(true);
+      ]);
+      return true;
+    },
+    bytes.toString("base64"),
+  );
+  if (systemClipboard)
+    expect(
+      await app.evaluate(async ({ clipboard }) => clipboard.has("image/png")),
+    ).toBe(true);
+  const pasteImage = async () => {
+    if (systemClipboard) return page.keyboard.press("Control+v");
+    await page.evaluate((base64) => {
+      const data = new DataTransfer();
+      data.items.add(
+        new File(
+          [Uint8Array.from(atob(base64), (ch) => ch.charCodeAt(0))],
+          "pasted.png",
+          { type: "image/png" },
+        ),
+      );
+      document.activeElement.dispatchEvent(
+        new ClipboardEvent("paste", {
+          bubbles: true,
+          cancelable: true,
+          clipboardData: data,
+        }),
+      );
+    }, bytes.toString("base64"));
+  };
   await page.locator(".cm-content").click();
   await page.keyboard.press("Control+End");
-  await page.keyboard.press("Control+v");
+  await pasteImage();
   await expect.poll(() => fs.readFile(file, "utf8")).toContain("ymg-image-");
   await expect
     .poll(() =>
@@ -108,7 +136,7 @@ try {
   await page.getByTitle("所见即所得", { exact: true }).click();
   await page.locator(".tiptap p").filter({ hasText: "在此插入图片" }).click();
   await page.keyboard.press("Control+End");
-  await page.keyboard.press("Control+v");
+  await pasteImage();
   await expect
     .poll(() =>
       page
