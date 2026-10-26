@@ -1,5 +1,29 @@
 const { BrowserWindow } = require("electron");
 const fs = require("node:fs/promises");
+const path = require("node:path");
+let mathCSS;
+async function getMathCSS() {
+  if (!mathCSS)
+    mathCSS = (async () => {
+      const cssPath = require.resolve("katex/dist/katex.min.css");
+      let css = await fs.readFile(cssPath, "utf8");
+      const urls = [
+        ...new Set(
+          [...css.matchAll(/url\((fonts\/[^)]+)\)/g)].map((match) => match[1]),
+        ),
+      ];
+      for (const url of urls) {
+        const bytes = await fs.readFile(path.join(path.dirname(cssPath), url));
+        const ext = path.extname(url).slice(1);
+        css = css.replaceAll(
+          `url(${url})`,
+          `url(data:font/${ext};base64,${bytes.toString("base64")})`,
+        );
+      }
+      return css;
+    })();
+  return mathCSS;
+}
 const styles = `
 @page { size: A4; margin: 18mm 16mm; }
 body { color:#202634; background:white; font:11pt/1.75 system-ui,"Microsoft YaHei",sans-serif; overflow-wrap:anywhere; }
@@ -28,7 +52,8 @@ async function writePDF(html, destination) {
   printWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   printWindow.webContents.on("will-navigate", (e) => e.preventDefault());
   try {
-    const document = `<!doctype html><html lang="zh-CN"><head><meta charset="UTF-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data: https:; style-src 'unsafe-inline';"><style>${styles}</style></head><body>${html}</body></html>`;
+    const mathStyle = await getMathCSS();
+    const document = `<!doctype html><html lang="zh-CN"><head><meta charset="UTF-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data: https:; font-src data:; style-src 'unsafe-inline';"><style>${mathStyle} ${styles}</style></head><body>${html}</body></html>`;
     await printWindow.loadURL(
       "data:text/html;charset=utf-8," + encodeURIComponent(document),
     );
