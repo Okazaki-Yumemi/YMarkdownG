@@ -58,7 +58,7 @@ import { editorMotion } from "./editor-motion";
 import { FolderContextMenu } from "./FolderContextMenu";
 import "./folder-menu.css";
 import { Select } from "./Select";
-import { RichEditor, type RichEditorHandle } from "./RichEditor";
+import type { RichEditorHandle } from "./RichEditor";
 import { SettingsDialog } from "./SettingsDialog";
 import { SidebarResize } from "./SidebarResize";
 import { themes, getTheme, themeVariables, sourceTheme } from "./themes";
@@ -323,6 +323,19 @@ function App() {
   const workspacePopover = useRef<HTMLDivElement>(null);
   const morePopover = useRef<HTMLDivElement>(null);
   const richEditor = useRef<RichEditorHandle>(null);
+  const [RichEditor, setRichEditor] = useState<
+    typeof import("./RichEditor").RichEditor | null
+  >(null);
+  useEffect(() => {
+    if (mode !== "rich" || RichEditor) return;
+    let active = true;
+    void import("./RichEditor").then((module) => {
+      if (active) setRichEditor(() => module.RichEditor);
+    });
+    return () => {
+      active = false;
+    };
+  }, [mode, RichEditor]);
   const inlineImageInput = useRef<HTMLInputElement>(null);
   const preview = useRef<HTMLDivElement>(null);
   const note = notes.find((n) => n.id === activeId) || notes[0];
@@ -2034,29 +2047,32 @@ function App() {
                     <span>MARKDOWN</span>
                   </div>
                   <div className="panes">
-                    {mode === "rich" && (
-                      <RichEditor
-                        key={note.id}
-                        ref={richEditor}
-                        toolbar={prefs.showToolbar}
-                        assetBase={imageBase}
-                        onImagePaste={(file) =>
-                          insertImageData(
-                            file
-                              .arrayBuffer()
-                              .then((buffer) => new Uint8Array(buffer)),
-                          )
-                        }
-                        value={note.content}
-                        onChange={update}
-                        motion={{
-                          enabled: prefs.smoothCursor,
-                          trail: prefs.cursorTrail,
-                          duration: prefs.cursorDuration,
-                          feedback: prefs.typingFeedback,
-                        }}
-                      />
-                    )}
+                    {mode === "rich" &&
+                      (RichEditor ? (
+                        <RichEditor
+                          key={note.id}
+                          ref={richEditor}
+                          toolbar={prefs.showToolbar}
+                          assetBase={imageBase}
+                          onImagePaste={(file) =>
+                            insertImageData(
+                              file
+                                .arrayBuffer()
+                                .then((buffer) => new Uint8Array(buffer)),
+                            )
+                          }
+                          value={note.content}
+                          onChange={update}
+                          motion={{
+                            enabled: prefs.smoothCursor,
+                            trail: prefs.cursorTrail,
+                            duration: prefs.cursorDuration,
+                            feedback: prefs.typingFeedback,
+                          }}
+                        />
+                      ) : (
+                        <div role="status">加载编辑器…</div>
+                      ))}
                     {mode !== "preview" && mode !== "rich" && (
                       <section className="source-pane">
                         <div className="pane-label">
