@@ -50,19 +50,59 @@ function register(channel, handler) {
     return handler(...args);
   });
 }
+async function readConfig() {
+  try {
+    return JSON.parse(await fs.readFile(configPath(), "utf8"));
+  } catch (error) {
+    if (error.code === "ENOENT") return {};
+    throw error;
+  }
+}
+async function writeConfig(config) {
+  await fs.mkdir(app.getPath("userData"), { recursive: true });
+  const temp = configPath() + ".tmp";
+  await fs.writeFile(temp, JSON.stringify(config), "utf8");
+  await fs.rename(temp, configPath());
+}
 async function openRoot(root) {
   const store = await new NativeStore(root).init();
   const data = await store.load();
   const id = randomUUID();
+  const config = await readConfig();
+  const libraries = config.libraries || [];
+  const normalized = (value) =>
+    process.platform === "win32" ? value.toLowerCase() : value;
+  if (
+    !libraries.some((item) => normalized(item.root) === normalized(store.root))
+  )
+    libraries.push({
+      id: randomUUID(),
+      root: store.root,
+      name: path.basename(store.root),
+    });
+  await writeConfig({ ...config, root: store.root, libraries });
   stores.set(id, store);
-  await fs.mkdir(app.getPath("userData"), { recursive: true });
-  await fs.writeFile(
-    configPath(),
-    JSON.stringify({ root: store.root }),
-    "utf8",
-  );
   return { id, name: path.basename(store.root), root: store.root, ...data };
 }
+register("libraries:list", async () => (await readConfig()).libraries || []);
+register("libraries:open", async (id) => {
+  const item = ((await readConfig()).libraries || []).find(
+    (item) => item.id === id,
+  );
+  if (!item) throw new Error("此文件夹尚未收录");
+  return openRoot(item.root);
+});
+register("libraries:forget", async (id) => {
+  const config = await readConfig();
+  const item = (config.libraries || []).find((item) => item.id === id);
+  if (item?.root === config.root)
+    throw new Error("请先切换到其他文件夹，再移除此收录");
+  await writeConfig({
+    ...config,
+    libraries: (config.libraries || []).filter((item) => item.id !== id),
+  });
+  return (await readConfig()).libraries || [];
+});
 function getStore(id) {
   if (!stores.has(id)) throw new Error("笔记空间未打开");
   return stores.get(id);
@@ -82,7 +122,7 @@ register("workspace:restore", async () => {
 });
 register("workspace:open", async () => {
   const result = await dialog.showOpenDialog(win, {
-    title: "选择笔记空间",
+    title: "收录 Markdown 文件夹（保留原位置）",
     properties: ["openDirectory", "createDirectory"],
   });
   return result.canceled ? null : openRoot(result.filePaths[0]);

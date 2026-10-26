@@ -1257,3 +1257,35 @@ nav button.selected {
   color: var(--accent);
   font-size: 11px;
 }
+
+.workspace-dropdown {
+  max-height: min(65vh, 540px);
+  overflow-y: auto;
+}
+.library-entry {
+  display: flex;
+  align-items: center;
+}
+.library-entry > button:first-child {
+  min-width: 0;
+  flex: 1;
+}
+.library-entry span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.library-entry small {
+  display: block;
+  font-size: 9px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 165px;
+  margin-top: 3px;
+}
+.library-entry button.selected {
+  background: var(--accent-soft);
+  color: var(--accent);
+}

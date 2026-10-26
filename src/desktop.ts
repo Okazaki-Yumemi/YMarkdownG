@@ -1,5 +1,6 @@
 import type { StoredNote } from "./storage";
 import type { UpdateState } from "./UpdatesPanel";
+export type Library = { id: string; name: string; root: string };
 export type DesktopData = {
   id: string;
   name: string;
@@ -19,6 +20,9 @@ declare global {
       installUpdate(): Promise<void>;
       automaticUpdates(value: boolean): Promise<UpdateState>;
       onUpdate(callback: (state: UpdateState) => void): () => void;
+      libraries(): Promise<Library[]>;
+      openLibrary(id: string): Promise<DesktopData>;
+      forgetLibrary(id: string): Promise<Library[]>;
       restore(): Promise<DesktopData>;
       open(): Promise<DesktopData | null>;
       refresh(

@@ -309,7 +309,19 @@ class NativeStore {
           await this.resolve(parts.join("/")),
           name,
         );
-        await fs.link(old.target, destination);
+        if (
+          process.platform === "win32" &&
+          old.target.toLowerCase() === destination.toLowerCase()
+        ) {
+          await fs.rename(old.target, destination);
+          record.path = relative;
+          return this.snapshot();
+        }
+        await fs.copyFile(
+          old.target,
+          destination,
+          require("node:fs").constants.COPYFILE_EXCL,
+        );
         try {
           await this.unchanged(record);
           await fs.unlink(old.target);

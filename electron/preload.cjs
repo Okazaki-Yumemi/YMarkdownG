@@ -12,6 +12,9 @@ contextBridge.exposeInMainWorld("desktop", {
     ipcRenderer.on("updates:state", listener);
     return () => ipcRenderer.removeListener("updates:state", listener);
   },
+  libraries: () => ipcRenderer.invoke("libraries:list"),
+  openLibrary: (id) => ipcRenderer.invoke("libraries:open", id),
+  forgetLibrary: (id) => ipcRenderer.invoke("libraries:forget", id),
   restore: () => ipcRenderer.invoke("workspace:restore"),
   open: () => ipcRenderer.invoke("workspace:open"),
   refresh: (id, notes) => ipcRenderer.invoke("workspace:refresh", id, notes),

@@ -55,7 +55,7 @@ import {
 import "./styles.css";
 import "./neovim.css";
 import "./editor-motion.css";
-import { DesktopWorkspace } from "./desktop";
+import { DesktopWorkspace, type Library } from "./desktop";
 import { editorMotion } from "./editor-motion";
 import { FolderContextMenu } from "./FolderContextMenu";
 import "./folder-menu.css";
@@ -302,6 +302,7 @@ function App() {
   const [newTitle, setNewTitle] = useState("");
   const [targetFolder, setTargetFolder] = useState("");
   const [moveDialog, setMoveDialog] = useState(false);
+  const [libraries, setLibraries] = useState<Library[]>([]);
   const [workspaceMenu, setWorkspaceMenu] = useState(false);
   const [commandOpen, setCommandOpen] = useState(false);
   const [commandQuery, setCommandQuery] = useState("");
@@ -352,11 +353,19 @@ function App() {
   useEffect(() => {
     if (!window.desktop) return;
     let cancelled = false;
+    void window.desktop
+      .libraries()
+      .then(setLibraries)
+      .catch(() => {});
     restorePromise.current ??= window.desktop.restore();
     void restorePromise.current
       .then((data) => {
         if (cancelled) return;
         setWorkspace(new DesktopWorkspace(data));
+        void window
+          .desktop!.libraries()
+          .then(setLibraries)
+          .catch(() => {});
         setNotes(data.notes);
         setFolders(data.folders);
         setActiveId(
@@ -427,6 +436,7 @@ function App() {
     diskTimer.current = setTimeout(() => {
       void (async () => {
         await refreshTask.current;
+        await structureTask.current;
         if (workspaceRef.current === workspace)
           await workspace.save(notesRef.current);
       })()
@@ -569,8 +579,9 @@ function App() {
       window.removeEventListener("focus", refresh);
     };
   }, [workspace, folderBusy, renameBusy]);
-  async function openWorkspace(reconnect = false) {
+  async function openWorkspace(reconnect = false, libraryId?: string) {
     if (window.desktop) {
+      await refreshWorkspace();
       switchingWorkspace.current = true;
       try {
         await refreshTask.current;
@@ -578,8 +589,13 @@ function App() {
           clearTimeout(diskTimer.current);
           await workspace.save(notesRef.current);
         }
-        const data = await window.desktop.open();
+        const data = libraryId
+          ? await window.desktop.openLibrary(libraryId)
+          : await window.desktop.open();
         if (!data) return;
+        setLibraries(await window.desktop.libraries());
+        setSyncError("");
+        setSyncMessage("");
         setWorkspace(new DesktopWorkspace(data));
         setNotes(data.notes);
         setFolders(data.folders);
@@ -964,8 +980,12 @@ function App() {
             const version = ++diskVersion.current;
             setDiskStatus("saving");
             window.desktop.setDirty(true);
-            void workspace
-              .save(notesRef.current)
+            void (async () => {
+              await refreshTask.current;
+              await structureTask.current;
+              if (workspaceRef.current === workspace)
+                await workspace.save(notesRef.current);
+            })()
               .then(() => {
                 if (diskVersion.current === version) {
                   setDiskStatus("saved");
@@ -1195,9 +1215,52 @@ function App() {
             </button>
             {workspaceMenu && (
               <div className="workspace-dropdown dropdown">
+                {window.desktop && (
+                  <>
+                    <p>已收录文件夹 · 原位置管理</p>
+                    {libraries.map((library) => (
+                      <div className="library-entry" key={library.id}>
+                        <button
+                          title={library.root}
+                          className={
+                            workspace instanceof DesktopWorkspace &&
+                            workspace.fullPath === library.root
+                              ? "selected"
+                              : ""
+                          }
+                          onClick={() => void openWorkspace(false, library.id)}
+                        >
+                          <FolderOpen size={14} />
+                          <span>
+                            {library.name}
+                            <small>{library.root}</small>
+                          </span>
+                        </button>
+                        {!(
+                          workspace instanceof DesktopWorkspace &&
+                          workspace.fullPath === library.root
+                        ) && (
+                          <button
+                            title={`移除收录 ${library.name}`}
+                            onClick={() => {
+                              void window
+                                .desktop!.forgetLibrary(library.id)
+                                .then(setLibraries)
+                                .catch((e) => notify(e.message));
+                            }}
+                          >
+                            <X size={13} />
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                    <div className="context-separator" />
+                  </>
+                )}
+
                 <button onClick={() => void openWorkspace()}>
                   <FolderOpen size={15} />
-                  打开本地笔记目录
+                  {window.desktop ? "收录文件夹…" : "打开本地笔记目录"}
                 </button>
                 {previousWorkspace && (
                   <button onClick={() => void openWorkspace(true)}>
@@ -1219,7 +1282,7 @@ function App() {
                     在文件管理器中打开
                   </button>
                 )}
-                <p>目录对应文件夹，笔记保存为 .md 文件</p>
+                <p>收录后直接读写原文件夹；移除收录不会删除文件。</p>
               </div>
             )}
           </div>
