@@ -37,6 +37,21 @@ async function launch(executable) {
   });
   page.on("pageerror", (error) => errors.push(error.message));
   await page.waitForSelector(".desktop-loading", { state: "detached" });
+  await page.evaluate(() => {
+    window.__dragEvents = [];
+    for (const type of ["dragstart", "drop", "dragend"])
+      document.addEventListener(
+        type,
+        (e) =>
+          window.__dragEvents.push({
+            type,
+            target:
+              e.target.closest("button")?.getAttribute("aria-label") ||
+              e.target.textContent?.slice(0, 50),
+          }),
+        true,
+      );
+  });
   return { app, page };
 }
 let running;
@@ -183,6 +198,9 @@ try {
   await expect(
     page.getByRole("button", { name: "目录 DeepInfer/已改名", exact: true }),
   ).toBeVisible();
+  await expect(
+    page.locator(".note-card").filter({ hasText: "右键创建笔记" }),
+  ).toHaveAttribute("draggable", "true");
   await page
     .locator(".note-card")
     .filter({ hasText: "右键创建笔记" })
@@ -268,6 +286,17 @@ try {
   console.log(
     "Desktop passed: standalone file load, IPC isolation, native persistence, animated cursor, IME, motion settings, close flush and restart.",
   );
+} catch (error) {
+  if (running) {
+    console.log(
+      "Drag events:",
+      await running.page.evaluate(() => window.__dragEvents),
+    );
+    await running.page.screenshot({
+      path: path.join(testRoot, "desktop-failure.png"),
+    });
+  }
+  throw error;
 } finally {
   if (running && running.app.process().exitCode === null)
     await running.app.close();
