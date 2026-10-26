@@ -3,9 +3,9 @@ import { createRoot } from "react-dom/client";
 import CodeMirror, { type ReactCodeMirrorRef } from "@uiw/react-codemirror";
 import { markdown } from "@codemirror/lang-markdown";
 import { languages } from "@codemirror/language-data";
-import { marked } from "marked";
-import DOMPurify from "dompurify";
-import hljs from "highlight.js/lib/common";
+import { renderMarkdown } from "./markdown";
+import { useScrollSync } from "./scroll-sync";
+import { EditorView } from "@codemirror/view";
 import {
   DiskWorkspace,
   cleanFolder,
@@ -59,6 +59,12 @@ import { DesktopWorkspace, type Library } from "./desktop";
 import { editorMotion } from "./editor-motion";
 import { FolderContextMenu } from "./FolderContextMenu";
 import "./folder-menu.css";
+import { Select } from "./Select";
+import { RichEditor, type RichEditorHandle } from "./RichEditor";
+import { SettingsDialog } from "./SettingsDialog";
+import { SidebarResize } from "./SidebarResize";
+import { themes, getTheme, themeVariables, sourceTheme } from "./themes";
+import "./workspace-ui.css";
 import { UpdatesPanel } from "./UpdatesPanel";
 
 type Note = {
@@ -70,6 +76,11 @@ type Note = {
   folder: string;
 };
 type Preferences = {
+  sidebarWidth: number;
+  showToolbar: boolean;
+  showStatus: boolean;
+  fullWidth: boolean;
+  syncScroll: boolean;
   smoothCursor: boolean;
   cursorTrail: boolean;
   cursorDuration: number;
@@ -87,45 +98,27 @@ type Preferences = {
   font: string;
 };
 const defaults: Preferences = {
+  sidebarWidth: 300,
+  showToolbar: true,
+  showStatus: true,
+  fullWidth: true,
+  syncScroll: true,
   smoothCursor: true,
   cursorTrail: true,
   cursorDuration: 120,
   typingFeedback: 45,
-  theme: "dark",
-  accent: "#7aa2f7",
+  theme: "one-dark-pro",
+  accent: "#61afef",
   background: "paper",
   image: "",
-  opacity: 92,
+  opacity: 100,
   backgroundTransparency: 0,
   blur: 0,
   fontSize: 15,
-  lineHeight: 1.85,
+  lineHeight: 1.7,
   width: 960,
   font: "mono",
 };
-const escapeHTML = (text: string) =>
-  text
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-marked.use({
-  renderer: {
-    code({ text, lang }) {
-      const language = lang?.split(/\s/)[0] || "text";
-      const result = hljs.getLanguage(language)
-        ? hljs.highlight(text, { language }).value
-        : escapeHTML(text);
-      return `<div class="code-block"><div class="code-header"><span>${escapeHTML(language)}</span><button type="button" class="copy-code" title="复制代码">复制代码</button></div><pre><code class="hljs language-${escapeHTML(language)}">${result
-        .split("\n")
-        .map(
-          (line, i) =>
-            `<span class="code-line"><span class="code-number" aria-hidden="true">${i + 1}</span><span>${line || " "}</span></span>`,
-        )
-        .join("")}</code></pre></div>`;
-    },
-  },
-});
 const welcome =
   '# 让思考，自由生长\n\n一个属于你的 Markdown 工作空间。\n\n**YMarkdownG** 把即时预览、本地文件和自由定制放在一起。像整理代码一样，整理你的知识。\n\n> 少一点干扰，多一点专注。\n\n## 代码，也是笔记的一部分\n\n```typescript\ninterface Notebook {\n  name: string;\n  path: string;\n}\n\nconst workspace: Notebook = {\n  name: "我的知识库",\n  path: "学习笔记/前端",\n};\n```\n\n## 你的目录，你的文件\n\n1. 点击左上角，选择本地笔记空间\n2. 在 EXPLORER 中创建多级目录\n3. 新建笔记，内容自动写入 `.md` 文件\n\n桌面版会自动打开上次使用的目录，首次启动使用文档文件夹下的 YMarkdownG。\n\n## 调整到你喜欢的样子\n\n- [x] 深色主题与等宽字体\n- [x] 代码高亮与即时预览\n- [ ] 上传一张自己的背景\n- [ ] 记录今天的第一个想法\n\n---\n\n`Ctrl + P` 快速打开 · `Ctrl + S` 保存 · `Ctrl + Shift + F` 专注模式\n';
 const seeds: Note[] = [
@@ -189,7 +182,17 @@ function App() {
     ...read("ymg-prefs", defaults),
   }));
   const [activeId, setActiveId] = useState(() => read("ymg-active", "welcome"));
-  const [mode, setMode] = useState<"split" | "edit" | "preview">("split");
+  const [mode, setMode] = useState<"split" | "edit" | "preview" | "rich">(
+    () => {
+      const value = read<string>("ymg-editor-mode", "split");
+      return ["split", "edit", "preview", "rich"].includes(value)
+        ? (value as "split" | "edit" | "preview" | "rich")
+        : "split";
+    },
+  );
+  useEffect(() => {
+    localStorage.setItem("ymg-editor-mode", JSON.stringify(mode));
+  }, [mode]);
   const [filter, setFilter] = useState("all");
   const [documentView, setDocumentView] = useState(() =>
     read("ymg-document-view", "list"),
@@ -202,10 +205,10 @@ function App() {
     localStorage.setItem("ymg-document-sort", JSON.stringify(documentSort));
   }, [documentView, documentSort]);
   const [query, setQuery] = useState("");
-  const [appearance, setAppearance] = useState(() => innerWidth > 960);
+  const [appearance, setAppearance] = useState(false);
   const [sidebar, setSidebar] = useState(() => innerWidth > 650);
   const [focus, setFocus] = useState(false);
-  const [tab, setTab] = useState("background");
+  const [tab, setTab] = useState("theme");
   const [toast, setToast] = useState("");
   const [saveError, setSaveError] = useState(false);
   const [pdfBusy, setPdfBusy] = useState(false);
@@ -315,6 +318,9 @@ function App() {
   const editor = useRef<ReactCodeMirrorRef>(null);
   const importRef = useRef<HTMLInputElement>(null);
   const imageRef = useRef<HTMLInputElement>(null);
+  const workspacePopover = useRef<HTMLDivElement>(null);
+  const morePopover = useRef<HTMLDivElement>(null);
+  const richEditor = useRef<RichEditorHandle>(null);
   const preview = useRef<HTMLDivElement>(null);
   const note = notes.find((n) => n.id === activeId) || notes[0];
   useEffect(() => {
@@ -336,6 +342,7 @@ function App() {
   const editorExtensions = useMemo(
     () => [
       markdown({ codeLanguages: languages }),
+      sourceTheme(prefs.theme),
       editorMotion({
         enabled: prefs.smoothCursor,
         trail: prefs.cursorTrail,
@@ -344,6 +351,7 @@ function App() {
       }),
     ],
     [
+      prefs.theme,
       prefs.smoothCursor,
       prefs.cursorTrail,
       prefs.cursorDuration,
@@ -837,6 +845,32 @@ function App() {
       /* Saving content reports storage errors separately. */
     }
   }, [activeId]);
+  useEffect(() => {
+    if (!workspaceMenu && !menu) return;
+    const outside = (event: Event) => {
+      if (
+        workspaceMenu &&
+        !workspacePopover.current?.contains(event.target as Node)
+      )
+        setWorkspaceMenu(false);
+      if (menu && !morePopover.current?.contains(event.target as Node))
+        setMenu(false);
+    };
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setWorkspaceMenu(false);
+        setMenu(false);
+      }
+    };
+    document.addEventListener("pointerdown", outside, true);
+    document.addEventListener("focusin", outside);
+    document.addEventListener("keydown", escape);
+    return () => {
+      document.removeEventListener("pointerdown", outside, true);
+      document.removeEventListener("focusin", outside);
+      document.removeEventListener("keydown", escape);
+    };
+  }, [workspaceMenu, menu]);
   const update = (content: string) =>
     setNotes((ns) =>
       ns.map((n) =>
@@ -956,6 +990,10 @@ function App() {
   }
   function insert(before: string, after = "") {
     if (!note) return;
+    if (mode === "rich") {
+      richEditor.current?.insert(before, after);
+      return;
+    }
     setMode((m) => (m === "preview" ? "split" : m));
     const view = editor.current?.view;
     if (view) {
@@ -973,6 +1011,26 @@ function App() {
   }
   useEffect(() => {
     function key(e: KeyboardEvent) {
+      if ((e.metaKey || e.ctrlKey) && e.key === ",") {
+        e.preventDefault();
+        setAppearance((open) => !open);
+        return;
+      }
+      if (
+        (e.metaKey || e.ctrlKey) &&
+        e.shiftKey &&
+        e.key.toLowerCase() === "t"
+      ) {
+        e.preventDefault();
+        patch({ showToolbar: !prefs.showToolbar });
+        return;
+      }
+      if (
+        mode === "rich" &&
+        (e.metaKey || e.ctrlKey) &&
+        ["b", "i"].includes(e.key.toLowerCase())
+      )
+        return;
       if (e.metaKey || e.ctrlKey) {
         if (e.key.toLowerCase() === "s") {
           e.preventDefault();
@@ -1079,15 +1137,28 @@ function App() {
     else imageRef.current?.click();
   }
   const html = useMemo(
-    () =>
-      DOMPurify.sanitize(
-        marked.parse(note?.content || "", {
-          gfm: true,
-          breaks: true,
-        }) as string,
-      ),
+    () => renderMarkdown(note?.content || ""),
     [note?.content],
   );
+  useScrollSync(editor, preview, prefs.syncScroll, mode, html);
+  useEffect(() => {
+    if (preview.current) preview.current.scrollTop = 0;
+  }, [note?.id]);
+  function jumpToSource(line: number) {
+    if (mode === "preview" || mode === "rich") setMode("split");
+    requestAnimationFrame(() => {
+      const view = editor.current?.view;
+      if (!view) return;
+      const from = view.state.doc.line(
+        Math.min(view.state.doc.lines, Math.max(1, line)),
+      ).from;
+      view.dispatch({
+        selection: { anchor: from },
+        effects: EditorView.scrollIntoView(from, { y: "start" }),
+      });
+      view.focus();
+    });
+  }
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "p") {
@@ -1142,10 +1213,12 @@ function App() {
   ];
   return (
     <div
-      className={`app ${prefs.theme} ${focus ? "focus-mode" : ""}`}
+      className={`app ${getTheme(prefs.theme).dark ? "dark" : "light"} theme-${getTheme(prefs.theme).id} ${focus ? "focus-mode" : ""}`}
       style={
         {
+          ...themeVariables(prefs.theme),
           "--accent": prefs.accent,
+          "--sidebar-width": `${prefs.sidebarWidth}px`,
           "--editor-size": `${prefs.fontSize}px`,
           "--line-height": prefs.lineHeight,
           "--page-width": `${prefs.width}px`,
@@ -1199,9 +1272,11 @@ function App() {
               <small>YOUR SECOND BRAIN</small>
             </span>
           </a>
-          <div className="workspace-wrap">
+          <div className="workspace-wrap" ref={workspacePopover}>
             <button
               className="workspace"
+              aria-expanded={workspaceMenu}
+              aria-label="已收录文件夹菜单"
               onClick={() => setWorkspaceMenu(!workspaceMenu)}
             >
               <span className="workspace-avatar">Y</span>
@@ -1325,7 +1400,10 @@ function App() {
             ))}
           </nav>
           <div className="section-label">
-            EXPLORER / 目录
+            EXPLORER / 目录{" "}
+            <small className="folder-total" title="目录总数">
+              {treeFolders.length}
+            </small>
             {workspace instanceof DesktopWorkspace && (
               <button
                 title="刷新已收录文件夹"
@@ -1448,7 +1526,9 @@ function App() {
           </div>
           <div className="section-label note-label">
             {filter === "starred" ? "收藏的笔记" : "我的笔记"}
-            <span>{visible.length}</span>
+            <span aria-label="笔记数量" title="当前筛选 / 全部笔记">
+              {visible.length} / {notes.length}
+            </span>
           </div>
           {(syncMessage || syncError) && (
             <div className="sync-notice" role="status">
@@ -1464,7 +1544,7 @@ function App() {
             </div>
           )}
           <div className="library-controls">
-            <select
+            <Select
               aria-label="文档排序"
               value={documentSort}
               onChange={(e) => setDocumentSort(e.target.value)}
@@ -1472,15 +1552,15 @@ function App() {
               <option value="updated">最近修改</option>
               <option value="title">标题 A–Z</option>
               <option value="folder">所在目录</option>
-            </select>
-            <select
+            </Select>
+            <Select
               aria-label="文档视图"
               value={documentView}
               onChange={(e) => setDocumentView(e.target.value)}
             >
               <option value="list">文档列表</option>
               <option value="cards">摘要卡片</option>
-            </select>
+            </Select>
           </div>
           <div
             className={`note-list ${documentView === "list" ? "document-list" : ""}`}
@@ -1563,6 +1643,12 @@ function App() {
           </div>
         </aside>
       )}
+      {sidebar && !focus && (
+        <SidebarResize
+          width={prefs.sidebarWidth}
+          onChange={(value) => patch({ sidebarWidth: value })}
+        />
+      )}
       <main className="main">
         <header className="topbar">
           <div className="breadcrumb">
@@ -1602,6 +1688,26 @@ function App() {
                   : "已自动保存"}
             </button>
             <button
+              title={prefs.showToolbar ? "隐藏工具栏" : "显示工具栏"}
+              onClick={() => patch({ showToolbar: !prefs.showToolbar })}
+            >
+              <Columns2 size={16} />
+            </button>
+            {!prefs.showToolbar && (
+              <div className="mode-selector">
+                <Select
+                  aria-label="编辑模式"
+                  value={mode}
+                  onChange={(e) => setMode(e.target.value as typeof mode)}
+                >
+                  <option value="rich">所见即所得</option>
+                  <option value="edit">源码</option>
+                  <option value="split">分屏</option>
+                  <option value="preview">阅读</option>
+                </Select>
+              </div>
+            )}
+            <button
               title="收藏笔记"
               className={note?.starred ? "is-starred" : ""}
               onClick={() =>
@@ -1619,6 +1725,8 @@ function App() {
               className={appearance ? "pressed" : ""}
               onClick={() => {
                 setAppearance(!appearance);
+                setWorkspaceMenu(false);
+                setMenu(false);
                 setFocus(false);
               }}
             >
@@ -1632,7 +1740,7 @@ function App() {
               <Download size={16} />
               <span>{pdfBusy ? "导出中…" : "PDF"}</span>
             </button>
-            <div className="menu-wrap">
+            <div className="menu-wrap" ref={morePopover}>
               <button title="更多操作" onClick={() => setMenu(!menu)}>
                 <MoreHorizontal size={20} />
               </button>
@@ -1681,7 +1789,9 @@ function App() {
             </div>
           </div>
         </header>
-        <div className="editor-toolbar">
+        <div
+          className={`editor-toolbar ${!prefs.showToolbar ? "toolbar-hidden" : ""}`}
+        >
           <div className="format-tools">
             <span className="buffer-dot" />
             {tools.map((t) => (
@@ -1699,6 +1809,7 @@ function App() {
             <div className="segmented">
               {(
                 [
+                  { id: "rich", icon: FileText, label: "所见即所得" },
                   { id: "edit", icon: Code2, label: "源码" },
                   { id: "split", icon: Columns2, label: "分屏" },
                   { id: "preview", icon: Eye, label: "阅读" },
@@ -1737,7 +1848,10 @@ function App() {
                 opacity: (100 - prefs.backgroundTransparency) / 100,
               }}
             />
-            <div className={`document-shell mode-${mode} font-${prefs.font}`}>
+            <div
+              data-full-width={prefs.fullWidth}
+              className={`document-shell mode-${mode} font-${prefs.font}`}
+            >
               {note ? (
                 <>
                   <div className="document-meta">
@@ -1748,7 +1862,21 @@ function App() {
                     <span>MARKDOWN</span>
                   </div>
                   <div className="panes">
-                    {mode !== "preview" && (
+                    {mode === "rich" && (
+                      <RichEditor
+                        key={note.id}
+                        ref={richEditor}
+                        value={note.content}
+                        onChange={update}
+                        motion={{
+                          enabled: prefs.smoothCursor,
+                          trail: prefs.cursorTrail,
+                          duration: prefs.cursorDuration,
+                          feedback: prefs.typingFeedback,
+                        }}
+                      />
+                    )}
+                    {mode !== "preview" && mode !== "rich" && (
                       <section className="source-pane">
                         <div className="pane-label">
                           <Code2 size={13} />
@@ -1758,7 +1886,7 @@ function App() {
                           key={note.id}
                           ref={editor}
                           value={note.content}
-                          theme={prefs.theme === "dark" ? "dark" : "light"}
+                          theme="none"
                           extensions={editorExtensions}
                           basicSetup={{
                             lineNumbers: true,
@@ -1767,27 +1895,10 @@ function App() {
                             highlightActiveLineGutter: true,
                           }}
                           onChange={update}
-                          onUpdate={(v) => {
-                            if (v.docChanged) return;
-                            if (
-                              v.view.scrollDOM.scrollHeight >
-                                v.view.scrollDOM.clientHeight &&
-                              preview.current
-                            ) {
-                              const fraction =
-                                v.view.scrollDOM.scrollTop /
-                                (v.view.scrollDOM.scrollHeight -
-                                  v.view.scrollDOM.clientHeight);
-                              preview.current.scrollTop =
-                                fraction *
-                                (preview.current.scrollHeight -
-                                  preview.current.clientHeight);
-                            }
-                          }}
                         />
                       </section>
                     )}
-                    {mode !== "edit" && (
+                    {mode !== "edit" && mode !== "rich" && (
                       <section className="preview-pane" ref={preview}>
                         <div className="pane-label">
                           <Eye size={13} />
@@ -1796,6 +1907,13 @@ function App() {
                         </div>
                         <article
                           className="markdown-body"
+                          onDoubleClick={(event) => {
+                            const block = (
+                              event.target as HTMLElement
+                            ).closest<HTMLElement>(".md-source-block");
+                            if (block)
+                              jumpToSource(Number(block.dataset.sourceLine));
+                          }}
                           dangerouslySetInnerHTML={{ __html: html }}
                           onClick={(e) => {
                             const copy = (e.target as HTMLElement).closest(
@@ -1863,333 +1981,410 @@ function App() {
               <span>✦</span> 你的文字，值得一个舒适的空间
             </div>
           </div>
-          {appearance && !focus && (
-            <aside className="appearance">
-              <div className="appearance-heading">
-                <span>
-                  <Palette size={17} />
-                  外观
-                </span>
-                <button
-                  title="关闭外观面板"
-                  onClick={() => setAppearance(false)}
-                >
-                  <X size={17} />
-                </button>
-              </div>
-              <p className="panel-description">创造属于你的写作氛围</p>
-              <div className="settings-tabs">
-                {[
-                  { id: "background", name: "背景" },
-                  { id: "type", name: "排版" },
-                  { id: "outline", name: "大纲" },
-                  { id: "motion", name: "动效" },
-                  ...(window.desktop ? [{ id: "updates", name: "更新" }] : []),
-                ].map((t) => (
+          {appearance && (
+            <SettingsDialog onClose={() => setAppearance(false)}>
+              <aside className="appearance">
+                <div className="appearance-heading">
+                  <span>
+                    <Palette size={17} />
+                    设置
+                  </span>
                   <button
-                    key={t.id}
-                    className={tab === t.id ? "active" : ""}
-                    onClick={() => setTab(t.id)}
+                    title="关闭外观面板"
+                    onClick={() => setAppearance(false)}
                   >
-                    {t.name}
+                    <X size={17} />
                   </button>
-                ))}
-              </div>
-              <div className="settings-body">
-                {tab === "updates" && <UpdatesPanel />}
-                {tab === "motion" && (
-                  <>
-                    <div className="motion-intro">
-                      光标随你的思路平滑移动。跳转带有短暂拖影，输入时给出轻微光晕反馈。
-                    </div>
-                    <label className="toggle-setting">
-                      <span>
-                        平滑光标<small>关闭后使用原生光标</small>
-                      </span>
-                      <input
-                        aria-label="平滑光标"
-                        type="checkbox"
-                        checked={prefs.smoothCursor}
-                        onChange={(e) =>
-                          patch({ smoothCursor: e.target.checked })
-                        }
-                      />
-                    </label>
-                    <label className="toggle-setting">
-                      <span>
-                        跳转拖影<small>跨行、点击和方向键移动</small>
-                      </span>
-                      <input
-                        aria-label="跳转拖影"
-                        type="checkbox"
-                        checked={prefs.cursorTrail}
-                        onChange={(e) =>
-                          patch({ cursorTrail: e.target.checked })
-                        }
-                      />
-                    </label>
-                    <Range
-                      label="光标动画时长"
-                      value={prefs.cursorDuration}
-                      min={40}
-                      max={260}
-                      step={10}
-                      unit="ms"
-                      onChange={(value) => patch({ cursorDuration: value })}
-                    />
-                    <Range
-                      label="打字反馈强度"
-                      value={prefs.typingFeedback}
-                      min={0}
-                      max={100}
-                      unit="%"
-                      onChange={(value) => patch({ typingFeedback: value })}
-                    />
-                    <div className="motion-demo">
-                      <span>▌</span> keep your thoughts flowing
-                      <p>
-                        设为 0
-                        可关闭打字反馈。遵循系统“减少动态效果”设置，输入不加入人工延迟。
+                </div>
+                <p className="panel-description">编辑器设置 · Ctrl / Cmd + ,</p>
+                <div className="settings-tabs">
+                  {[
+                    { id: "theme", name: "主题" },
+                    { id: "layout", name: "布局" },
+                    { id: "background", name: "背景" },
+                    { id: "type", name: "排版" },
+                    { id: "outline", name: "大纲" },
+                    { id: "motion", name: "动效" },
+                    ...(window.desktop
+                      ? [{ id: "updates", name: "更新" }]
+                      : []),
+                  ].map((t) => (
+                    <button
+                      key={t.id}
+                      className={tab === t.id ? "active" : ""}
+                      onClick={() => setTab(t.id)}
+                    >
+                      {t.name}
+                    </button>
+                  ))}
+                </div>
+                <div className="settings-body">
+                  {tab === "theme" && (
+                    <>
+                      <h2 className="settings-section-title">编辑器主题</h2>
+                      <p className="settings-note">
+                        应用成熟主题的配色，统一界面、源码与预览高亮。
                       </p>
-                    </div>
-                  </>
-                )}
-                {tab === "background" && (
-                  <>
-                    <label className="setting-label">界面主题</label>
-                    <div className="theme-options">
-                      <button
-                        className={prefs.theme === "light" ? "active" : ""}
-                        onClick={() => patch({ theme: "light" })}
-                      >
-                        <span className="theme-preview light-preview">
-                          <i />
-                          <b />
-                          <b />
-                        </span>
-                        <span>
-                          <Sun size={13} />
-                          浅色{prefs.theme === "light" && <Check size={13} />}
-                        </span>
-                      </button>
-                      <button
-                        className={prefs.theme === "dark" ? "active" : ""}
-                        onClick={() => patch({ theme: "dark" })}
-                      >
-                        <span className="theme-preview dark-preview">
-                          <i />
-                          <b />
-                          <b />
-                        </span>
-                        <span>
-                          <Moon size={13} />
-                          深色{prefs.theme === "dark" && <Check size={13} />}
-                        </span>
-                      </button>
-                    </div>
-                    <label className="setting-label">主题色</label>
-                    <div className="accent-options">
-                      {[
-                        "#7aa2f7",
-                        "#9ece6a",
-                        "#bb9af7",
-                        "#ff9e64",
-                        "#e0af68",
-                        "#7dcfff",
-                      ].map((color) => (
-                        <button
-                          key={color}
-                          title={`主题色 ${color}`}
-                          className={prefs.accent === color ? "active" : ""}
-                          style={{ background: color }}
-                          onClick={() => patch({ accent: color })}
-                        >
-                          {prefs.accent === color && <Check size={14} />}
-                        </button>
-                      ))}
-                      <label title="自选主题色" className="custom-color">
-                        <Plus size={15} />
-                        <input
-                          type="color"
-                          aria-label="自选主题色"
-                          value={prefs.accent}
-                          onChange={(e) => patch({ accent: e.target.value })}
-                        />
-                      </label>
-                    </div>
-                    <div className="setting-label with-secondary">
-                      写作背景<small>随心切换</small>
-                    </div>
-                    <div className="background-options">
-                      {[
-                        { id: "paper", name: "纯净纸白" },
-                        { id: "sage", name: "林间晨雾" },
-                        { id: "sand", name: "日落沙丘" },
-                        { id: "lavender", name: "暮色山野" },
-                        { id: "grid", name: "灵感网格" },
-                        { id: "custom", name: "自定义" },
-                      ].map((bg) => (
-                        <button
-                          key={bg.id}
-                          className={`background-option ${prefs.background === bg.id ? "active" : ""}`}
-                          onClick={() =>
-                            bg.id === "custom" && !prefs.image
-                              ? selectBackground()
-                              : patch({ background: bg.id })
-                          }
-                        >
-                          <span
-                            className={`bg-swatch bg-${bg.id}`}
-                            style={
-                              bg.id === "custom" && prefs.image
-                                ? {
-                                    backgroundImage: `url(${prefs.image})`,
-                                    backgroundSize: "cover",
-                                  }
-                                : {}
+                      <div className="theme-grid">
+                        {themes.map((theme) => (
+                          <button
+                            key={theme.id}
+                            type="button"
+                            aria-pressed={getTheme(prefs.theme).id === theme.id}
+                            className="theme-card"
+                            aria-label={theme.name}
+                            onClick={() =>
+                              patch({ theme: theme.id, accent: theme.accent })
                             }
                           >
-                            {bg.id === "custom" && !prefs.image && (
-                              <ImagePlus size={20} />
-                            )}{" "}
-                            {prefs.background === bg.id && (
-                              <span className="swatch-check">
-                                <Check size={11} />
-                              </span>
-                            )}
+                            <div
+                              className="theme-card-preview"
+                              style={{
+                                background: theme.bg,
+                                borderColor: theme.border,
+                              }}
+                            >
+                              <i style={{ background: theme.sidebar }} />
+                              <code style={{ color: theme.text }}>
+                                <span style={{ color: theme.keyword }}>
+                                  const
+                                </span>{" "}
+                                note ={" "}
+                                <span style={{ color: theme.string }}>
+                                  "Markdown"
+                                </span>
+                                ;<br />
+                                <span style={{ color: theme.comment }}>
+                                  // Write something.
+                                </span>
+                              </code>
+                            </div>
+                            <span>
+                              {theme.name}
+                              {getTheme(prefs.theme).id === theme.id && (
+                                <Check size={14} />
+                              )}
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                  {tab === "layout" && (
+                    <>
+                      <h2 className="settings-section-title">工作区布局</h2>
+                      {(
+                        [
+                          {
+                            key: "showToolbar",
+                            name: "显示格式工具栏",
+                            detail: "Ctrl / Cmd + Shift + T 快速切换",
+                          },
+                          {
+                            key: "showStatus",
+                            name: "显示底部状态栏",
+                            detail: "字数、编码和保存状态",
+                          },
+                          {
+                            key: "fullWidth",
+                            name: "使用全部编辑宽度",
+                            detail: "关闭后采用排版中的页面宽度",
+                          },
+                          {
+                            key: "syncScroll",
+                            name: "同步源码与预览滚动",
+                            detail: "按段落位置双向跟随",
+                          },
+                        ] as const
+                      ).map((item) => (
+                        <label className="toggle-setting" key={item.key}>
+                          <span>
+                            {item.name}
+                            <small>{item.detail}</small>
                           </span>
-                          <span>{bg.name}</span>
+                          <input
+                            type="checkbox"
+                            aria-label={item.name}
+                            checked={prefs[item.key]}
+                            onChange={(e) =>
+                              patch({ [item.key]: e.target.checked })
+                            }
+                          />
+                        </label>
+                      ))}
+                      <Range
+                        label="侧栏宽度"
+                        value={prefs.sidebarWidth}
+                        min={220}
+                        max={600}
+                        step={10}
+                        unit="px"
+                        onChange={(value) => patch({ sidebarWidth: value })}
+                      />
+                      <p className="settings-note">
+                        也可拖动左侧栏边缘；双击边缘恢复默认宽度。
+                      </p>
+                    </>
+                  )}
+                  {tab === "updates" && <UpdatesPanel />}
+                  {tab === "motion" && (
+                    <>
+                      <div className="motion-intro">
+                        光标随你的思路平滑移动。跳转带有短暂拖影，输入时给出轻微光晕反馈。
+                      </div>
+                      <label className="toggle-setting">
+                        <span>
+                          平滑光标<small>关闭后使用原生光标</small>
+                        </span>
+                        <input
+                          aria-label="平滑光标"
+                          type="checkbox"
+                          checked={prefs.smoothCursor}
+                          onChange={(e) =>
+                            patch({ smoothCursor: e.target.checked })
+                          }
+                        />
+                      </label>
+                      <label className="toggle-setting">
+                        <span>
+                          跳转拖影<small>跨行、点击和方向键移动</small>
+                        </span>
+                        <input
+                          aria-label="跳转拖影"
+                          type="checkbox"
+                          checked={prefs.cursorTrail}
+                          onChange={(e) =>
+                            patch({ cursorTrail: e.target.checked })
+                          }
+                        />
+                      </label>
+                      <Range
+                        label="光标动画时长"
+                        value={prefs.cursorDuration}
+                        min={40}
+                        max={260}
+                        step={10}
+                        unit="ms"
+                        onChange={(value) => patch({ cursorDuration: value })}
+                      />
+                      <Range
+                        label="打字反馈强度"
+                        value={prefs.typingFeedback}
+                        min={0}
+                        max={100}
+                        unit="%"
+                        onChange={(value) => patch({ typingFeedback: value })}
+                      />
+                      <div className="motion-demo">
+                        <span>▌</span> keep your thoughts flowing
+                        <p>
+                          设为 0
+                          可关闭打字反馈。遵循系统“减少动态效果”设置，输入不加入人工延迟。
+                        </p>
+                      </div>
+                    </>
+                  )}
+                  {tab === "background" && (
+                    <>
+                      <label className="setting-label">主题色</label>
+                      <div className="accent-options">
+                        {[
+                          "#7aa2f7",
+                          "#9ece6a",
+                          "#bb9af7",
+                          "#ff9e64",
+                          "#e0af68",
+                          "#7dcfff",
+                        ].map((color) => (
+                          <button
+                            key={color}
+                            title={`主题色 ${color}`}
+                            className={prefs.accent === color ? "active" : ""}
+                            style={{ background: color }}
+                            onClick={() => patch({ accent: color })}
+                          >
+                            {prefs.accent === color && <Check size={14} />}
+                          </button>
+                        ))}
+                        <label title="自选主题色" className="custom-color">
+                          <Plus size={15} />
+                          <input
+                            type="color"
+                            aria-label="自选主题色"
+                            value={prefs.accent}
+                            onChange={(e) => patch({ accent: e.target.value })}
+                          />
+                        </label>
+                      </div>
+                      <div className="setting-label with-secondary">
+                        写作背景<small>随心切换</small>
+                      </div>
+                      <div className="background-options">
+                        {[
+                          { id: "paper", name: "纯净纸白" },
+                          { id: "sage", name: "林间晨雾" },
+                          { id: "sand", name: "日落沙丘" },
+                          { id: "lavender", name: "暮色山野" },
+                          { id: "grid", name: "灵感网格" },
+                          { id: "custom", name: "自定义" },
+                        ].map((bg) => (
+                          <button
+                            key={bg.id}
+                            className={`background-option ${prefs.background === bg.id ? "active" : ""}`}
+                            onClick={() =>
+                              bg.id === "custom" && !prefs.image
+                                ? selectBackground()
+                                : patch({ background: bg.id })
+                            }
+                          >
+                            <span
+                              className={`bg-swatch bg-${bg.id}`}
+                              style={
+                                bg.id === "custom" && prefs.image
+                                  ? {
+                                      backgroundImage: `url(${prefs.image})`,
+                                      backgroundSize: "cover",
+                                    }
+                                  : {}
+                              }
+                            >
+                              {bg.id === "custom" && !prefs.image && (
+                                <ImagePlus size={20} />
+                              )}{" "}
+                              {prefs.background === bg.id && (
+                                <span className="swatch-check">
+                                  <Check size={11} />
+                                </span>
+                              )}
+                            </span>
+                            <span>{bg.name}</span>
+                          </button>
+                        ))}
+                      </div>
+                      <button
+                        className="upload-background"
+                        onClick={selectBackground}
+                      >
+                        <Upload size={14} />
+                        上传背景图片<small>JPG / PNG</small>
+                      </button>
+                      <Range
+                        label="背景图片透明度"
+                        value={prefs.backgroundTransparency}
+                        min={0}
+                        max={100}
+                        unit="%"
+                        onChange={(v) => patch({ backgroundTransparency: v })}
+                      />
+                      <p className="background-help">
+                        0% 显示原图，100% 完全透明。图片无固定体积限制。
+                      </p>
+                      <Range
+                        label="编辑区不透明度"
+                        value={prefs.opacity}
+                        min={30}
+                        max={100}
+                        unit="%"
+                        onChange={(v) => patch({ opacity: v })}
+                      />
+                      <Range
+                        label="背景模糊"
+                        value={prefs.blur}
+                        min={0}
+                        max={20}
+                        unit="px"
+                        onChange={(v) => patch({ blur: v })}
+                      />
+                      <div className="tip">
+                        <span>✧</span>
+                        <p>
+                          调低编辑区不透明度，可让背景透过正文。
+                          <br />
+                          图片与透明度设置会自动保存。
+                        </p>
+                      </div>
+                    </>
+                  )}
+                  {tab === "type" && (
+                    <>
+                      <label className="setting-label">正文字体</label>
+                      <Select
+                        aria-label="正文字体"
+                        value={prefs.font}
+                        onChange={(e) => patch({ font: e.target.value })}
+                      >
+                        <option value="serif">宋体 · 文艺书写</option>
+                        <option value="sans">黑体 · 清晰简洁</option>
+                        <option value="mono">等宽 · 专注代码</option>
+                      </Select>
+                      <Range
+                        label="字号"
+                        value={prefs.fontSize}
+                        min={12}
+                        max={24}
+                        unit="px"
+                        onChange={(v) => patch({ fontSize: v })}
+                      />
+                      <Range
+                        label="行高"
+                        value={prefs.lineHeight}
+                        min={1.3}
+                        max={2.5}
+                        step={0.1}
+                        onChange={(v) => patch({ lineHeight: v })}
+                      />
+                      <Range
+                        label="页面宽度"
+                        value={prefs.width}
+                        min={560}
+                        max={1400}
+                        step={20}
+                        unit="px"
+                        onChange={(v) => patch({ width: v })}
+                      />
+                      <div className="type-sample">
+                        文字是思想的足迹。
+                        <small>The quiet art of writing.</small>
+                      </div>
+                    </>
+                  )}
+                  {tab === "outline" && (
+                    <div className="outline">
+                      {headings.map((h) => (
+                        <button
+                          key={h.index}
+                          style={{
+                            paddingLeft: (h.match![1].length - 1) * 12 + 8,
+                          }}
+                          onClick={() => {
+                            setAppearance(false);
+                            jumpToSource(h.index + 1);
+                          }}
+                        >
+                          {h.match![2]}
                         </button>
                       ))}
+                      {!headings.length && <p>使用 # 标题构建笔记大纲</p>}
                     </div>
-                    <button
-                      className="upload-background"
-                      onClick={selectBackground}
-                    >
-                      <Upload size={14} />
-                      上传背景图片<small>JPG / PNG</small>
-                    </button>
-                    <Range
-                      label="背景图片透明度"
-                      value={prefs.backgroundTransparency}
-                      min={0}
-                      max={100}
-                      unit="%"
-                      onChange={(v) => patch({ backgroundTransparency: v })}
-                    />
-                    <p className="background-help">
-                      0% 显示原图，100% 完全透明。图片无固定体积限制。
-                    </p>
-                    <Range
-                      label="编辑区不透明度"
-                      value={prefs.opacity}
-                      min={30}
-                      max={100}
-                      unit="%"
-                      onChange={(v) => patch({ opacity: v })}
-                    />
-                    <Range
-                      label="背景模糊"
-                      value={prefs.blur}
-                      min={0}
-                      max={20}
-                      unit="px"
-                      onChange={(v) => patch({ blur: v })}
-                    />
-                    <div className="tip">
-                      <span>✧</span>
-                      <p>
-                        调低编辑区不透明度，可让背景透过正文。
-                        <br />
-                        图片与透明度设置会自动保存。
-                      </p>
-                    </div>
-                  </>
-                )}
-                {tab === "type" && (
-                  <>
-                    <label className="setting-label">正文字体</label>
-                    <select
-                      aria-label="正文字体"
-                      value={prefs.font}
-                      onChange={(e) => patch({ font: e.target.value })}
-                    >
-                      <option value="serif">宋体 · 文艺书写</option>
-                      <option value="sans">黑体 · 清晰简洁</option>
-                      <option value="mono">等宽 · 专注代码</option>
-                    </select>
-                    <Range
-                      label="字号"
-                      value={prefs.fontSize}
-                      min={12}
-                      max={24}
-                      unit="px"
-                      onChange={(v) => patch({ fontSize: v })}
-                    />
-                    <Range
-                      label="行高"
-                      value={prefs.lineHeight}
-                      min={1.3}
-                      max={2.5}
-                      step={0.1}
-                      onChange={(v) => patch({ lineHeight: v })}
-                    />
-                    <Range
-                      label="页面宽度"
-                      value={prefs.width}
-                      min={560}
-                      max={1400}
-                      step={20}
-                      unit="px"
-                      onChange={(v) => patch({ width: v })}
-                    />
-                    <div className="type-sample">
-                      文字是思想的足迹。<small>The quiet art of writing.</small>
-                    </div>
-                  </>
-                )}
-                {tab === "outline" && (
-                  <div className="outline">
-                    {headings.map((h) => (
-                      <button
-                        key={h.index}
-                        style={{
-                          paddingLeft: (h.match![1].length - 1) * 12 + 8,
-                        }}
-                        onClick={() => {
-                          if (mode === "edit") setMode("split");
-                          setTimeout(() => {
-                            const elements =
-                              preview.current?.querySelectorAll("h1,h2,h3");
-                            const index = headings.indexOf(h);
-                            elements?.[index]?.scrollIntoView({
-                              behavior: "smooth",
-                              block: "start",
-                            });
-                          }, 50);
-                        }}
-                      >
-                        {h.match![2]}
-                      </button>
-                    ))}
-                    {!headings.length && <p>使用 # 标题构建笔记大纲</p>}
-                  </div>
-                )}
-              </div>
-              <button
-                className="reset-settings"
-                onClick={() => {
-                  setPrefs(defaults);
-                  notify("已恢复默认外观");
-                }}
-              >
-                <RotateCcw size={13} />
-                恢复默认设置
-              </button>
-            </aside>
+                  )}
+                </div>
+                <button
+                  className="reset-settings"
+                  onClick={() => {
+                    setPrefs(defaults);
+                    notify("已恢复默认外观");
+                  }}
+                >
+                  <RotateCcw size={13} />
+                  恢复默认设置
+                </button>
+              </aside>
+            </SettingsDialog>
           )}
         </div>
-        <footer className="statusbar">
+        <footer
+          className={`statusbar ${!prefs.showStatus ? "status-hidden" : ""}`}
+        >
           <span>
             <span className="status-dot" />{" "}
             {focus ? "FOCUS · Esc 退出" : "MARKDOWN"}
@@ -2254,7 +2449,7 @@ function App() {
               </>
             )}
             <p>存储目录</p>
-            <select
+            <Select
               aria-label="笔记存储目录"
               value={targetFolder}
               onChange={(e) => setTargetFolder(e.target.value)}
@@ -2268,7 +2463,7 @@ function App() {
                     {f}
                   </option>
                 ))}
-            </select>
+            </Select>
             <div>
               <button
                 type="button"
@@ -2466,7 +2661,7 @@ function App() {
             {folderOperation.type === "move" && (
               <>
                 <p>目标父目录</p>
-                <select
+                <Select
                   aria-label="目标父目录"
                   value={operationParent}
                   onChange={(e) => setOperationParent(e.target.value)}
@@ -2483,7 +2678,7 @@ function App() {
                         {f}
                       </option>
                     ))}
-                </select>
+                </Select>
               </>
             )}
             {folderOperation.type === "delete" && (
