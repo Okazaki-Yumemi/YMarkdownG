@@ -23,6 +23,7 @@ contextBridge.exposeInMainWorld("desktop", {
     ipcRenderer.invoke("workspace:move-folder", id, from, to),
   deleteFolder: (id, folder) =>
     ipcRenderer.invoke("workspace:delete-folder", id, folder),
+  exportPDF: (title, html) => ipcRenderer.invoke("note:pdf", title, html),
   exportNote: (title, content) =>
     ipcRenderer.invoke("note:export", title, content),
   reveal: (id) => ipcRenderer.invoke("workspace:reveal", id),

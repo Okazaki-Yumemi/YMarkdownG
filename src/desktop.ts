@@ -40,6 +40,7 @@ declare global {
         id: string,
         folder: string,
       ): Promise<{ paths: Record<string, string> }>;
+      exportPDF(title: string, html: string): Promise<boolean>;
       exportNote(title: string, content: string): Promise<boolean>;
       reveal(id: string): Promise<void>;
       setDirty(value: boolean): void;

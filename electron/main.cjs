@@ -24,6 +24,7 @@ protocol.registerSchemesAsPrivileged([
   },
 ]);
 const { NativeStore } = require("./native-store.cjs");
+const { writePDF } = require("./pdf.cjs");
 const { createUpdates } = require("./updater.cjs");
 if (process.env.YMG_USER_DATA)
   app.setPath("userData", path.resolve(process.env.YMG_USER_DATA));
@@ -135,6 +136,22 @@ register("note:export", async (title, content) => {
   });
   if (result.canceled) return false;
   await fs.writeFile(result.filePath, content, "utf8");
+  return true;
+});
+register("note:pdf", async (title, html) => {
+  if (
+    typeof title !== "string" ||
+    typeof html !== "string" ||
+    Buffer.byteLength(html) > 20 * 1024 * 1024
+  )
+    throw new Error("无效 PDF 内容");
+  const result = await dialog.showSaveDialog(win, {
+    title: "导出 PDF",
+    defaultPath: `${title.replace(/[<>:"/\\|?*]/g, "_")}.pdf`,
+    filters: [{ name: "PDF", extensions: ["pdf"] }],
+  });
+  if (result.canceled) return false;
+  await writePDF(html, result.filePath);
   return true;
 });
 ipcMain.on("document:dirty", (event, value) => {

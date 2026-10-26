@@ -198,6 +198,7 @@ function App() {
   const [tab, setTab] = useState("background");
   const [toast, setToast] = useState("");
   const [saveError, setSaveError] = useState(false);
+  const [pdfBusy, setPdfBusy] = useState(false);
   const [menu, setMenu] = useState(false);
   const [pendingDelete, setPendingDelete] = useState(false);
   const [workspace, setWorkspace] = useState<
@@ -762,6 +763,19 @@ function App() {
       notify((error as Error).message);
     } finally {
       setRenameBusy(false);
+    }
+  }
+  async function exportPDF() {
+    if (!note || pdfBusy) return;
+    if (!window.desktop) return notify("导出 PDF 请使用桌面版");
+    setPdfBusy(true);
+    try {
+      if (await window.desktop.exportPDF(note.title, html))
+        notify("PDF 已导出");
+    } catch (error) {
+      notify(`PDF 导出失败：${(error as Error).message}`);
+    } finally {
+      setPdfBusy(false);
     }
   }
   function exportNote() {
@@ -1357,6 +1371,14 @@ function App() {
               }}
             >
               <Settings2 size={18} />
+            </button>
+            <button
+              title="一键导出 PDF"
+              disabled={pdfBusy || !note}
+              onClick={() => void exportPDF()}
+            >
+              <Download size={16} />
+              <span>{pdfBusy ? "导出中…" : "PDF"}</span>
             </button>
             <div className="menu-wrap">
               <button title="更多操作" onClick={() => setMenu(!menu)}>
