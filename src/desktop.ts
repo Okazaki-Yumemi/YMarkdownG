@@ -10,6 +10,10 @@ declare global {
   interface Window {
     desktop?: {
       current(): Promise<DocumentData>;
+      pendingOpenRequests(): Promise<string[]>;
+      openRequested(token: string): Promise<DocumentData | null>;
+      discardOpenRequest(token: string): Promise<boolean>;
+      onOpenRequest(callback: (token: string) => void): () => void;
       create(): Promise<DocumentData>;
       open(): Promise<DocumentData | null>;
       save(

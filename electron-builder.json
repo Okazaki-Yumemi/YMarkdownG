@@ -1,6 +1,15 @@
 {
   "appId": "io.github.okazaki-yumemi.ymarkdowng",
   "productName": "YMarkdownG",
+  "fileAssociations": [
+    {
+      "ext": ["md", "markdown", "mdown"],
+      "name": "Markdown",
+      "description": "Markdown 文档",
+      "mimeType": "text/markdown",
+      "role": "Editor"
+    }
+  ],
   "directories": {
     "output": "release"
   },

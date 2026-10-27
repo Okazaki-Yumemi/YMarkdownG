@@ -72,6 +72,9 @@ function App() {
   const actions = useRef<(name: FileCommand) => void>(() => {});
   const closing = useRef<() => Promise<void>>(async () => {});
   const refresh = useRef<() => Promise<void>>(async () => {});
+  const openRequests = useRef<string[]>([]);
+  const knownRequests = useRef(new Set<string>());
+  const drainRequests = useRef<() => Promise<void>>(async () => {});
   const notify = (value: string) => setMessage(value);
   const update = (content: string) => {
     current.current = { ...current.current, content };
@@ -263,6 +266,42 @@ function App() {
   actions.current = (name) => {
     void command(name);
   };
+  drainRequests.current = async () => {
+    if (
+      !window.desktop ||
+      !ready ||
+      busyRef.current ||
+      images.current.size ||
+      !openRequests.current.length
+    )
+      return;
+    busyRef.current = true;
+    setBusy(true);
+    try {
+      while (openRequests.current.length) {
+        const token = openRequests.current.shift()!;
+        if (!(await confirmChanges())) {
+          await window.desktop.discardOpenRequest(token);
+          continue;
+        }
+        try {
+          const value = await window.desktop.openRequested(token);
+          if (value) {
+            setSettings(false);
+            receive(value);
+          }
+        } catch (error) {
+          notify((error as Error).message);
+        }
+      }
+    } finally {
+      busyRef.current = false;
+      setBusy(false);
+    }
+  };
+  useEffect(() => {
+    void drainRequests.current();
+  }, [ready, busy, imageBusy]);
   closing.current = async () => {
     if (busyRef.current) {
       window.desktop?.flushed(false);
@@ -320,6 +359,17 @@ function App() {
     const offCommand = window.desktop?.onCommand((name) =>
       actions.current(name),
     );
+    const requested = (token: string) => {
+      if (knownRequests.current.has(token)) return;
+      knownRequests.current.add(token);
+      openRequests.current.push(token);
+      void drainRequests.current();
+    };
+    const offOpen = window.desktop?.onOpenRequest(requested);
+    void window.desktop
+      ?.pendingOpenRequests()
+      .then((tokens) => tokens.forEach(requested))
+      .catch((error) => notify(error.message));
     const onFocus = () => {
       void refresh.current();
     };
@@ -337,6 +387,7 @@ function App() {
     return () => {
       offFlush?.();
       offCommand?.();
+      offOpen?.();
       window.removeEventListener("focus", onFocus);
       window.removeEventListener("beforeunload", onUnload);
     };

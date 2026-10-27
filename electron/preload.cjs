@@ -6,6 +6,11 @@ const listen = (channel, callback) => {
 };
 contextBridge.exposeInMainWorld("desktop", {
   current: () => ipcRenderer.invoke("document:current"),
+  pendingOpenRequests: () => ipcRenderer.invoke("document:pending"),
+  openRequested: (token) => ipcRenderer.invoke("document:open-request", token),
+  discardOpenRequest: (token) =>
+    ipcRenderer.invoke("document:discard-request", token),
+  onOpenRequest: (callback) => listen("document:open-request", callback),
   create: () => ipcRenderer.invoke("document:new"),
   open: () => ipcRenderer.invoke("document:open"),
   save: (id, content, saveAs = false, expectedContent) =>

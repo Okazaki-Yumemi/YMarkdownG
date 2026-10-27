@@ -16,6 +16,8 @@ const { DocumentStore, imageType } = require("./document.cjs");
 const { writePDF } = require("./pdf.cjs");
 if (process.env.YMG_USER_DATA)
   app.setPath("userData", path.resolve(process.env.YMG_USER_DATA));
+const primaryInstance = app.requestSingleInstanceLock();
+if (!primaryInstance) app.quit();
 protocol.registerSchemesAsPrivileged([
   {
     scheme: "ymg-note",
@@ -36,6 +38,33 @@ let win,
   dirty = false,
   waiting = false,
   closing = false;
+const pendingFiles = new Map();
+function launchFile(argv, directory = process.cwd()) {
+  const file = argv.find(
+    (arg) => !arg.startsWith("-") && /\.(md|markdown|mdown|txt)$/i.test(arg),
+  );
+  return file ? path.resolve(directory, file) : undefined;
+}
+let initialFile = launchFile(process.argv.slice(1));
+function requestFile(file) {
+  const token = randomUUID();
+  pendingFiles.set(token, file);
+  win?.webContents.send("document:open-request", token);
+}
+app.on("second-instance", (_event, argv, directory) => {
+  const file = launchFile(argv, directory);
+  if (file) requestFile(file);
+  if (win) {
+    if (win.isMinimized()) win.restore();
+    win.show();
+    win.focus();
+  }
+});
+app.on("open-file", (event, file) => {
+  event.preventDefault();
+  if (!app.isReady() && !win) initialFile = file;
+  else requestFile(file);
+});
 function authorized(event) {
   if (
     !win ||
@@ -51,6 +80,13 @@ function register(channel, handler) {
   });
 }
 register("document:current", () => document.data());
+register("document:pending", () => [...pendingFiles.keys()]);
+register("document:discard-request", (token) => pendingFiles.delete(token));
+register("document:open-request", (token) => {
+  const file = pendingFiles.get(token);
+  pendingFiles.delete(token);
+  return file ? document.open(file) : null;
+});
 register("document:new", () => document.create());
 register("document:open", async () => {
   const result = await dialog.showOpenDialog(win, {
@@ -147,12 +183,10 @@ ipcMain.on("document:closed", (event, ok) => {
   }
 });
 app.whenReady().then(async () => {
-  const initial = process.argv
-    .slice(1)
-    .find((arg) => /\.(md|markdown|mdown)$/i.test(arg));
-  if (initial) {
+  if (!primaryInstance) return;
+  if (initialFile) {
     try {
-      await document.open(initial);
+      await document.open(initialFile);
     } catch (error) {
       dialog.showErrorBox("无法打开文件", error.message);
     }

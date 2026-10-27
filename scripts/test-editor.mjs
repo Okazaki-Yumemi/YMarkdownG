@@ -3,6 +3,7 @@ import { createRequire } from "node:module";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { checkIMEFeedback } from "./ime-feedback-check.mjs";
+import { spawn } from "node:child_process";
 const require = createRequire(import.meta.url);
 await fs.mkdir(".desktop-test", { recursive: true });
 const run = await fs.mkdtemp(path.resolve(".desktop-test/editor-"));
@@ -258,6 +259,51 @@ try {
   await expect
     .poll(() => fs.readFile(created, "utf8"))
     .toBe("# 新文档\n\n未保存内容");
+  const mainPid = app.process().pid;
+  const launchExisting = (file) => {
+    const child = spawn(
+      process.argv[2] || require("electron"),
+      process.argv[2] ? [file] : [".", file],
+      { env, stdio: "ignore", windowsHide: true },
+    );
+    return new Promise((resolve, reject) => {
+      child.once("error", reject);
+      child.once("exit", (code) =>
+        code === 0
+          ? resolve()
+          : reject(new Error(`Secondary launch exited: ${code}`)),
+      );
+    });
+  };
+  const started = performance.now();
+  const forwarded = launchExisting(second);
+  await expect(page.locator(".document-title")).toHaveText("其他.md");
+  await expect(page.locator(".cm-content")).toContainText("不要改动");
+  const takeoverMs = Math.round(performance.now() - started);
+  await forwarded;
+  expect(app.process().pid).toBe(mainPid);
+  expect(
+    await app.evaluate(
+      ({ BrowserWindow }) => BrowserWindow.getAllWindows().length,
+    ),
+  ).toBe(1);
+  await page.locator(".cm-content").fill("# 尚未保存的输入");
+  await app.evaluate(() => globalThis.__answers.push(2));
+  const prompts = await app.evaluate(() => globalThis.__promptCount);
+  await launchExisting(created);
+  await expect
+    .poll(() => app.evaluate(() => globalThis.__promptCount))
+    .toBe(prompts + 1);
+  await expect(page.locator(".document-title")).toContainText("其他.md");
+  await expect(page.locator(".cm-content")).toHaveText("# 尚未保存的输入");
+  expect(await fs.readFile(second, "utf8")).toBe("# 其他文档\n\n不要改动");
+  await app.evaluate(() => globalThis.__answers.push(0));
+  await launchExisting(created);
+  await expect(page.locator(".document-title")).toHaveText("新文档.md");
+  expect(await fs.readFile(second, "utf8")).toBe("# 尚未保存的输入");
+  console.log(
+    `Existing-window file takeover: ${takeoverMs} ms; same main PID and one window; cancel/save protection passed.`,
+  );
   expect(errors).toEqual([]);
   console.log(
     "Single-file editing, save/save-as, conflict protection, cancel/close, images, PDF, background, caret and restart passed:",
