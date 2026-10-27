@@ -2,6 +2,7 @@ import { _electron as electron, expect } from "@playwright/test";
 import { createRequire } from "node:module";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { checkIMEFeedback } from "./ime-feedback-check.mjs";
 const require = createRequire(import.meta.url);
 await fs.mkdir(".desktop-test", { recursive: true });
 const run = await fs.mkdtemp(path.resolve(".desktop-test/editor-"));
@@ -171,7 +172,7 @@ try {
         ),
     )
     .toBe(1);
-  await page.keyboard.press("Control+s");
+  await page.getByTitle("保存 Ctrl+S").click();
   await expect
     .poll(() => fs.readFile(savedAs, "utf8"))
     .toMatch(/!\[图片\]\(ymg-image-.*\.png\)/);
@@ -211,6 +212,7 @@ try {
     .filter({ hasText: /保留本地/ })
     .click();
   await page.keyboard.press("End");
+  await checkIMEFeedback(page);
   await page.keyboard.type(" animated input");
   await expect(
     page.locator(".rich-motion-layer .ymg-animated-caret"),

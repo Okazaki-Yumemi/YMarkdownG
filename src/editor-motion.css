@@ -26,6 +26,14 @@
   will-change: transform;
   mix-blend-mode: screen;
 }
+.rich-motion-layer.is-composing .ymg-animated-caret {
+  background: transparent;
+  border-color: transparent;
+  mix-blend-mode: normal;
+}
+.rich-motion-layer.is-composing > svg {
+  visibility: hidden;
+}
 .app:not(.dark) .ymg-animated-caret {
   mix-blend-mode: multiply;
 }
