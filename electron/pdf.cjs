@@ -5,11 +5,11 @@ let mathCSS;
 async function getMathCSS() {
   if (!mathCSS)
     mathCSS = (async () => {
-      const cssPath = require.resolve("katex/dist/katex.min.css");
+      const cssPath = path.join(__dirname, "../dist/pdf-math.css");
       let css = await fs.readFile(cssPath, "utf8");
       const urls = [
         ...new Set(
-          [...css.matchAll(/url\((fonts\/[^)]+)\)/g)].map((match) => match[1]),
+          [...css.matchAll(/url\((assets\/[^)]+)\)/g)].map((match) => match[1]),
         ),
       ];
       for (const url of urls) {
@@ -37,6 +37,7 @@ blockquote { border-left:3px solid #7894b7; margin-left:0; padding-left:16px; co
 table { border-collapse:collapse; width:100%; } th,td { border:1px solid #ccd3dd; padding:6px 9px; } th { background:#eef2f7; }
 tr,img { break-inside:avoid; } thead { display:table-header-group; }
 .code-header { color:#66788c; font-size:9pt; } button { display:none; }
+.code-line { display:block; } .code-number { display:none; }
 .hljs-keyword,.hljs-selector-tag { color:#8c3b91; } .hljs-string,.hljs-attr { color:#2f704f; }
 .hljs-number,.hljs-literal { color:#a35418; } .hljs-comment { color:#77818c; }
 `;

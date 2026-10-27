@@ -1,34 +1,24 @@
 {
   "name": "ymarkdowng",
   "version": "0.5.0",
-  "description": "可自定义背景与排版的本地 Markdown 笔记编辑器",
+  "description": "桌面 Markdown 编辑器",
   "scripts": {
     "dev": "node scripts/dev.mjs",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "test": "node --test tests/native-store.test.cjs && playwright test",
+    "test": "node --test tests/document.test.cjs && playwright test",
     "format": "prettier --write src tests scripts electron *.ts *.json index.html README.md",
     "dev:web": "vite",
     "start": "npm run build && electron .",
     "package:win": "npm run build && electron-builder --win portable nsis --x64 --publish never",
     "package:installer": "npm run build && electron-builder --win nsis --x64 --publish never",
-    "test:desktop": "node scripts/test-desktop.mjs",
+    "test:desktop": "node scripts/test-editor.mjs",
     "package:mac": "npm run build && electron-builder --mac dmg zip --publish never",
-    "package:linux": "npm run build && electron-builder --linux AppImage --x64 --publish never",
-    "test:pdf": "node scripts/test-pdf.mjs",
-    "test:sync": "node scripts/test-sync.mjs",
-    "test:libraries": "node scripts/test-libraries.mjs",
-    "test:rich": "node scripts/test-rich.mjs",
-    "test:images": "node scripts/test-images.mjs"
+    "package:linux": "npm run build && electron-builder --linux AppImage --x64 --publish never"
   },
   "keywords": [],
   "author": "Okazaki-Yumemi",
   "type": "module",
-  "dependencies": {
-    "electron-updater": "^6.8.11",
-    "katex": "^0.19.1",
-    "semver": "^7.8.5"
-  },
   "devDependencies": {
     "@codemirror/lang-markdown": "^6.5.2",
     "@codemirror/language": "^6.13.1",
@@ -63,7 +53,8 @@
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "typescript": "^7.0.2",
-    "vite": "^8.3.5"
+    "vite": "^8.3.5",
+    "katex": "^0.19.1"
   },
   "private": true,
   "engines": {

@@ -1,114 +1,34 @@
-import type { StoredNote } from "./storage";
-import type { UpdateState } from "./UpdatesPanel";
-export type Library = { id: string; name: string; root: string };
-export type DesktopData = {
+export type DocumentData = {
   id: string;
+  path: string | null;
   name: string;
-  root: string;
-  paths: Record<string, string>;
-  notes: StoredNote[];
-  folders: string[];
+  content: string;
+  imageBase?: string;
 };
+export type FileCommand = "new" | "open" | "save" | "saveAs" | "pdf";
 declare global {
   interface Window {
     desktop?: {
-      platform: string;
-      saveImage(id: string, noteId: string, bytes: Uint8Array): Promise<string>;
-      chooseImage(): Promise<Uint8Array | null>;
-      chooseBackground(): Promise<string | null>;
-      updateState(): Promise<UpdateState>;
-      checkUpdates(): Promise<UpdateState>;
-      downloadUpdate(): Promise<UpdateState>;
-      installUpdate(): Promise<void>;
-      automaticUpdates(value: boolean): Promise<UpdateState>;
-      onUpdate(callback: (state: UpdateState) => void): () => void;
-      libraries(): Promise<Library[]>;
-      openLibrary(id: string): Promise<DesktopData>;
-      forgetLibrary(id: string): Promise<Library[]>;
-      restore(): Promise<DesktopData>;
-      open(): Promise<DesktopData | null>;
-      refresh(
-        id: string,
-        notes: StoredNote[],
-      ): Promise<{
-        notes: StoredNote[];
-        folders: string[];
-        paths: Record<string, string>;
-        notices: string[];
-      }>;
+      current(): Promise<DocumentData>;
+      create(): Promise<DocumentData>;
+      open(): Promise<DocumentData | null>;
       save(
         id: string,
-        notes: StoredNote[],
-      ): Promise<{ paths: Record<string, string> }>;
-      renameNote(
-        id: string,
-        noteId: string,
-        title: string,
-      ): Promise<{ paths: Record<string, string> }>;
-      createFolder(id: string, folder: string): Promise<void>;
-      moveFolder(
-        id: string,
-        from: string,
-        to: string,
-      ): Promise<{ paths: Record<string, string> }>;
-      deleteFolder(
-        id: string,
-        folder: string,
-      ): Promise<{ paths: Record<string, string> }>;
+        content: string,
+        saveAs?: boolean,
+        expectedContent?: string,
+      ): Promise<DocumentData | null>;
+      confirmSave(): Promise<"save" | "discard" | "cancel">;
+      refresh(id: string): Promise<{ changed: boolean; missing: boolean }>;
+      reload(id: string): Promise<DocumentData>;
+      saveImage(id: string, bytes: Uint8Array): Promise<string>;
+      chooseImage(): Promise<Uint8Array | null>;
+      chooseBackground(): Promise<string | null>;
       exportPDF(title: string, html: string): Promise<boolean>;
-      exportNote(title: string, content: string): Promise<boolean>;
-      reveal(id: string): Promise<void>;
       setDirty(value: boolean): void;
       onFlush(callback: () => void): () => void;
-      flushed(ok: boolean, error?: string): void;
+      flushed(ok: boolean): void;
+      onCommand(callback: (command: FileCommand) => void): () => void;
     };
-  }
-}
-export class DesktopWorkspace {
-  readonly root: { name: string };
-  readonly id: string;
-  readonly fullPath: string;
-  private paths: Record<string, string>;
-  constructor(readonly data: DesktopData) {
-    this.root = { name: data.name };
-    this.id = data.id;
-    this.fullPath = data.root;
-    this.paths = data.paths;
-  }
-  async load() {
-    return { notes: this.data.notes, folders: this.data.folders };
-  }
-  pathFor(id: string) {
-    return this.paths[id];
-  }
-  imageBase(id: string) {
-    const relative = this.paths[id];
-    return relative
-      ? `ymg-note://${this.id}/${relative.split("/").map(encodeURIComponent).join("/")}`
-      : undefined;
-  }
-  saveImage(id: string, bytes: Uint8Array) {
-    return window.desktop!.saveImage(this.id, id, bytes);
-  }
-  async refresh(notes: StoredNote[]) {
-    const result = await window.desktop!.refresh(this.id, notes);
-    this.paths = result.paths;
-    return result;
-  }
-  async save(notes: StoredNote[]) {
-    const result = await window.desktop!.save(this.id, notes);
-    this.paths = result.paths;
-  }
-  async renameNote(id: string, title: string) {
-    this.paths = (await window.desktop!.renameNote(this.id, id, title)).paths;
-  }
-  createFolder(path: string) {
-    return window.desktop!.createFolder(this.id, path);
-  }
-  async moveFolder(from: string, to: string) {
-    this.paths = (await window.desktop!.moveFolder(this.id, from, to)).paths;
-  }
-  async deleteFolder(folder: string) {
-    this.paths = (await window.desktop!.deleteFolder(this.id, folder)).paths;
   }
 }

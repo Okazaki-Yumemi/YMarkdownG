@@ -17,14 +17,7 @@
   "afterPack": "scripts/audit-package.cjs",
   "electronDist": "node_modules/electron/dist",
   "npmRebuild": false,
-  "publish": [
-    {
-      "provider": "github",
-      "owner": "Okazaki-Yumemi",
-      "repo": "YMarkdownG",
-      "releaseType": "release"
-    }
-  ],
+  "publish": null,
   "win": {
     "icon": "public/favicon.ico",
     "target": [
@@ -46,7 +39,8 @@
     "oneClick": false,
     "allowToChangeInstallationDirectory": true,
     "createDesktopShortcut": true,
-    "artifactName": "YMarkdownG-${version}-Setup-${arch}.${ext}"
+    "artifactName": "YMarkdownG-${version}-Setup-${arch}.${ext}",
+    "differentialPackage": false
   },
   "mac": {
     "icon": "public/icon-512.png",

@@ -39,7 +39,7 @@ jobs:
         run: |
           set -euo pipefail
           node -e "if(process.env.RELEASE_TAG !== 'v'+require('./package.json').version) throw Error('Tag and version differ')"
-          node --test tests/native-store.test.cjs
+          node --test tests/document.test.cjs
       - name: Build ${{ matrix.platform }}
         run: ${{ matrix.command }}
       - uses: actions/upload-artifact@v4
@@ -52,9 +52,6 @@ jobs:
             release/*.dmg
             release/*.zip
             release/*.AppImage
-            release/*.blockmap
-            release/*.yml
-            !release/builder-*.yml
   publish:
     needs: build
     runs-on: ubuntu-latest

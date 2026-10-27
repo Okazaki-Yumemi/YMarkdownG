@@ -429,7 +429,6 @@ export const RichEditor = forwardRef<
   return (
     <section className="rich-editor">
       <div className={`rich-tools ${!toolbar ? "toolbar-hidden" : ""}`}>
-        <span>所见即所得</span>
         <button
           title="编辑当前块 Markdown（Alt+Enter）"
           onClick={() => openSource.current()}

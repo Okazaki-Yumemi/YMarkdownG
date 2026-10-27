@@ -3,7 +3,7 @@ set -euo pipefail
 : "${RELEASE_TAG:?Missing release tag}"
 : "${GH_REPO:?Missing repository}"
 version="${RELEASE_TAG#v}"
-required=("YMarkdownG-$version-Windows-x64.exe" "YMarkdownG-$version-Setup-x64.exe" "YMarkdownG-$version-Setup-x64.exe.blockmap" "latest.yml" "latest-linux.yml" "YMarkdownG-$version-macOS-arm64.dmg" "YMarkdownG-$version-macOS-x64.dmg" "YMarkdownG-$version-macOS-arm64.zip" "YMarkdownG-$version-macOS-x64.zip" "YMarkdownG-$version-Linux-x86_64.AppImage")
+required=("YMarkdownG-$version-Windows-x64.exe" "YMarkdownG-$version-Setup-x64.exe" "YMarkdownG-$version-macOS-arm64.dmg" "YMarkdownG-$version-macOS-x64.dmg" "YMarkdownG-$version-macOS-arm64.zip" "YMarkdownG-$version-macOS-x64.zip" "YMarkdownG-$version-Linux-x86_64.AppImage")
 for name in "${required[@]}"; do test -s "release/$name" || { echo "Missing $name"; exit 1; }; done
 rm -f release/SHA256SUMS.txt
 (cd release && sha256sum -- * > ../SHA256SUMS.txt)

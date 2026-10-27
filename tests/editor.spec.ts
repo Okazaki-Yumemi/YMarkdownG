@@ -1,376 +1,108 @@
-import { selectChoice } from "../scripts/select-choice.mjs";
 import { test, expect } from "@playwright/test";
-
-test("folder context menus inherit parents and support keyboard dismissal", async ({
-  page,
-}) => {
-  await page.goto("/");
-  const parent = page.getByRole("button", {
-    name: "目录 开始使用",
-    exact: true,
-  });
-  await parent.click({ button: "right" });
-  await expect(page.getByRole("menu", { name: "目录操作" })).toBeVisible();
-  await page.getByRole("menuitem", { name: "新建子目录" }).click();
-  await expect(page.locator(".folder-parent")).toContainText("开始使用/");
-  await page.getByLabel("目录路径").fill("学习/Markdown");
-  await page.getByRole("button", { name: "创建目录", exact: true }).click();
-  const child = page.getByRole("button", {
-    name: "目录 开始使用/学习/Markdown",
-    exact: true,
-  });
-  await expect(child).toBeVisible();
-  await child.click({ button: "right" });
-  await page.getByRole("menuitem", { name: "在此新建笔记" }).click();
-  await expect(page.getByLabel("笔记存储目录")).toHaveAttribute(
-    "data-value",
-    "开始使用/学习/Markdown",
-  );
-  await page.getByLabel("笔记名称").fill("下级目录中的笔记");
-  await page.getByRole("button", { name: "创建笔记", exact: true }).click();
-  await expect(page.locator(".markdown-body h1")).toHaveText(
-    "下级目录中的笔记",
-  );
-  await child.focus();
-  await page.keyboard.press("Shift+F10");
-  await expect(page.getByRole("menu")).toBeVisible();
-  await page.keyboard.press("ArrowDown");
-  await expect(
-    page.getByRole("menuitem", { name: "在此新建笔记" }),
-  ).toBeFocused();
-  await page.keyboard.press("Escape");
-  await expect(page.getByRole("menu")).toHaveCount(0);
-  await expect(child).toBeFocused();
-  await parent.click({ button: "right" });
-  await page.getByLabel("搜索笔记").click();
-  await expect(page.getByRole("menu")).toHaveCount(0);
-  await page.getByTitle("新建目录", { exact: true }).click();
-  await expect(page.locator(".folder-parent")).toHaveCount(0);
-  await expect(page.getByLabel("目录路径")).toHaveValue("");
-});
-
-test("live Markdown, highlighted code, persistence, export and sanitization", async ({
-  page,
-}) => {
-  const errors: string[] = [];
-  page.on("pageerror", (e) => errors.push(e.message));
-  await page.goto("/");
-  await expect(page.locator(".app")).toHaveClass(/dark/);
-  await expect(page.locator(".code-block .hljs-keyword").first()).toBeVisible();
-  await page.getByRole("button", { name: "新建笔记", exact: true }).click();
-  await page.getByLabel("笔记名称").fill("验证笔记");
-  await page.getByRole("button", { name: "创建笔记", exact: true }).click();
-  await page
-    .locator(".cm-content")
-    .fill(
-      '# 测试标题\n\n**实时加粗**\n\n```python\ndef greet(name):\n    return "Hello " + name\n```\n\n<img src=x onerror="window.hacked=true"><script>window.hacked=true</script>',
-    );
-  await expect(page.locator(".markdown-body h1")).toHaveText("测试标题");
-  await expect(page.locator(".markdown-body strong")).toHaveText("实时加粗");
-  await expect(page.locator(".code-header")).toContainText("python");
-  await expect(page.locator(".hljs-keyword").first()).toHaveText("def");
-  expect(await page.evaluate(() => (window as any).hacked)).toBeUndefined();
-  expect(await page.locator(".markdown-body").innerHTML()).not.toContain(
-    "onerror=",
-  );
-  await page.reload();
-  await expect(page.locator(".markdown-body h1")).toHaveText("测试标题");
-  const download = page.waitForEvent("download");
-  await page.keyboard.press("Control+s");
-  expect((await download).suggestedFilename()).toBe("测试标题.md");
-  await page.keyboard.press("Control+p");
-  await page.getByLabel("快速查找笔记").fill("语法指南");
-  await page.locator(".command-results button").click();
-  await expect(page.locator(".markdown-body h1")).toHaveText(
-    "Markdown 语法指南",
-  );
-  expect(errors).toEqual([]);
-});
-
-test("appearance settings survive reload and focus mode exits", async ({
-  page,
-}) => {
-  await page.goto("/");
-  await page.getByTitle("设置", { exact: true }).click();
-  await page.getByRole("button", { name: "背景", exact: true }).click();
-  await page.getByRole("button", { name: "暮色山野", exact: true }).click();
-  await page.getByRole("button", { name: "排版", exact: true }).click();
-  await page.getByLabel("字号", { exact: true }).fill("20");
-  await selectChoice(page, "正文字体", "sans");
-  await page.keyboard.press("Escape");
-  await page.reload();
-  await expect(page.locator(".canvas")).toHaveClass(/bg-lavender/);
-  await expect(page.locator(".document-shell")).toHaveClass(/font-sans/);
-  await expect(page.locator(".app")).toHaveAttribute(
-    "style",
-    /--editor-size: 20px/,
-  );
-  await page.keyboard.press("Control+Shift+f");
-  await expect(page.locator(".sidebar")).toHaveCount(0);
-  await page.keyboard.press("Escape");
-  await expect(page.locator(".sidebar")).toBeVisible();
-});
-
-test("directory workspace creates nested folders and actual Markdown files", async ({
-  page,
-}) => {
-  await page.addInitScript(() => {
-    (window as any).showDirectoryPicker = async () => {
-      const root = await navigator.storage.getDirectory();
-      const folder = await root.getDirectoryHandle("test-vault", {
-        create: true,
-      });
-      Object.defineProperty(folder, "requestPermission", {
-        value: async () => "granted",
-      });
-      return folder;
-    };
-  });
-  await page.goto("/");
-  await page.locator(".workspace").click();
-  await page
-    .getByRole("button", { name: "打开本地笔记目录", exact: true })
-    .click();
-  await expect(page.locator(".workspace")).toContainText("test-vault");
-  await page.getByTitle("新建目录", { exact: true }).click();
-  await page.getByLabel("目录路径").fill("学习/前端");
-  await page.getByRole("button", { name: "创建目录", exact: true }).click();
-  await page.getByRole("button", { name: "新建笔记", exact: true }).click();
-  await page.getByLabel("笔记名称").fill("React 学习");
-  await page.getByRole("button", { name: "创建笔记", exact: true }).click();
-  await page.locator(".cm-content").fill("# React 学习\n\n保存到真实目录");
-  await expect(page.getByTitle("保存状态", { exact: true })).toContainText(
-    "已保存到磁盘",
-  );
-  const content = await page.evaluate(async () => {
-    let root = await navigator.storage.getDirectory();
-    for (const path of ["test-vault", "学习", "前端"])
-      root = await root.getDirectoryHandle(path);
-    return (await (await root.getFileHandle("React 学习.md")).getFile()).text();
-  });
-  expect(content).toBe("# React 学习\n\n保存到真实目录");
-  await page.getByTitle("更多操作").click();
-  await page.getByRole("button", { name: "移动笔记", exact: true }).click();
-  await selectChoice(page, "笔记存储目录", "");
-  await page.getByRole("button", { name: "确认移动", exact: true }).click();
-  await expect(page.getByTitle("保存状态", { exact: true })).toContainText(
-    "已保存到磁盘",
-  );
-  expect(
-    await page.evaluate(async () => {
-      const root = await (
-        await navigator.storage.getDirectory()
-      ).getDirectoryHandle("test-vault");
-      return (
-        await (await root.getFileHandle("React 学习.md")).getFile()
-      ).text();
-    }),
-  ).toContain("保存到真实目录");
-  await page.getByTitle("更多操作").click();
-  await page.getByRole("button", { name: "删除当前笔记" }).click();
-  await page.getByRole("button", { name: "确认删除" }).click();
-  await expect(page.getByTitle("保存状态", { exact: true })).toContainText(
-    "已保存到磁盘",
-  );
-  const trash = await page.evaluate(async () => {
-    const root = await (
-      await navigator.storage.getDirectory()
-    ).getDirectoryHandle("test-vault");
-    const trash = await root.getDirectoryHandle(".ymarkdowng-trash");
-    const files = [];
-    for await (const entry of (trash as any).values())
-      files.push(await (await entry.getFile()).text());
-    return files;
-  });
-  expect(trash).toEqual(["# React 学习\n\n保存到真实目录"]);
-});
-
-test("storage prevents collisions, detects external edits and reloads nested files", async ({
-  page,
-}) => {
-  await page.goto("/");
-  const result = await page.evaluate(async () => {
-    const modulePath = "/src/storage.ts";
-    const { DiskWorkspace, cleanFolder } = await import(
-      /* @vite-ignore */ modulePath
-    );
-    const root = await (
-      await navigator.storage.getDirectory()
-    ).getDirectoryHandle("storage-test", { create: true });
-    const disk = new DiskWorkspace(root);
-    await disk.load();
-    await disk.createFolder("笔记/代码");
-    const a = {
-      id: "a",
-      title: "同名",
-      content: "# first",
-      updated: 1,
-      starred: false,
-      folder: "笔记/代码",
-    };
-    const b = { ...a, id: "b", content: "# second" };
-    await disk.save([a, b]);
-    const dir = await (
-      await root.getDirectoryHandle("笔记")
-    ).getDirectoryHandle("代码");
-    const first = await dir.getFileHandle("同名.md");
-    const second = await dir.getFileHandle("同名 (1).md");
-    const loaded = await new DiskWorkspace(root).load();
-    const writer = await first.createWritable();
-    await writer.write("external");
-    await writer.close();
-    let conflict = "";
-    try {
-      await disk.save([{ ...a, content: "internal" }, b]);
-    } catch (e) {
-      conflict = (e as Error).message;
-    }
-    let rejectedPath = false;
-    try {
-      cleanFolder("../escape");
-    } catch {
-      rejectedPath = true;
-    }
-    return {
-      second: await (await second.getFile()).text(),
-      loaded: loaded.notes.length,
-      folders: loaded.folders,
-      conflict,
-      preserved: await (await first.getFile()).text(),
-      rejectedPath,
-    };
-  });
-  expect(result.second).toBe("# second");
-  expect(result.loaded).toBe(2);
-  expect(result.folders).toContain("笔记/代码");
-  expect(result.conflict).toContain("检测到外部修改");
-  expect(result.preserved).toBe("external");
-  expect(result.rejectedPath).toBe(true);
-});
-
-test("responsive layout has no horizontal overflow", async ({ page }) => {
-  await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto("/");
-  await expect(page.locator(".sidebar")).toHaveCount(0);
-  await expect(page.locator(".appearance")).toHaveCount(0);
-  expect(
-    await page.evaluate(
-      () => document.documentElement.scrollWidth <= innerWidth,
-    ),
-  ).toBe(true);
-  await expect(page.locator(".markdown-body h1")).toBeVisible();
-});
-
-test("imports Markdown, copies code and persists uploaded backgrounds", async ({
-  page,
-  context,
-}) => {
-  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+const sample =
+  "# 单文档\n\n**加粗** 与 $x^2$\n\n```js\nconst n = 42;\n```\n\n## 结尾\n\n继续写作";
+async function open(page: import("@playwright/test").Page, text = sample) {
   await page.goto("/");
   await page
     .locator("input[type=file]")
     .first()
     .setInputFiles({
-      name: "snippet.md",
+      name: "笔记.md",
       mimeType: "text/markdown",
-      buffer: Buffer.from(
-        "# 导入代码\n\n```javascript\nconst answer = 42;\nconsole.log(answer);\n```",
-      ),
+      buffer: Buffer.from(text),
     });
-  await expect(page.locator(".markdown-body h1")).toHaveText("导入代码");
-  await page.getByRole("button", { name: "复制代码", exact: true }).click();
-  await expect
-    .poll(() =>
-      page.evaluate(async () =>
-        (await navigator.clipboard.readText()).replace(/\r\n/g, "\n"),
-      ),
-    )
-    .toBe("const answer = 42;\nconsole.log(answer);");
+}
+test("single document UI retains rendering, code, math and rich editing without library controls", async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await open(page);
+  await expect(page.locator(".tiptap h1")).toHaveText("单文档");
+  await expect(page.locator(".sidebar,.note-list,.folder-tree")).toHaveCount(0);
+  await page.getByTitle("分屏", { exact: true }).click();
+  await expect(page.locator(".preview-pane .katex")).toHaveCount(1);
+  await expect(page.locator(".hljs-keyword").first()).toBeVisible();
+  await page.locator(".cm-content").fill(sample + "\n\n实时变化");
+  await expect(page.locator(".preview-pane")).toContainText("实时变化");
+  await page.getByTitle("所见即所得", { exact: true }).click();
+  await page
+    .locator(".tiptap p")
+    .filter({ hasText: /^继续写作$/ })
+    .fill("编辑完成");
+  await page.getByTitle("源码", { exact: true }).click();
+  await expect(page.locator(".cm-content")).toContainText("编辑完成");
+  expect(errors).toEqual([]);
+});
+test("settings keep themes, custom dropdown, background transparency and motion; dismiss outside", async ({
+  page,
+}) => {
+  await open(page);
+  await page.getByTitle("设置", { exact: true }).click();
+  await page.getByRole("button", { name: "GitHub Light", exact: true }).click();
+  await expect(page.locator(".app")).toHaveClass(/light/);
+  await page.getByRole("button", { name: "排版", exact: true }).click();
+  await page.getByRole("combobox", { name: "正文字体" }).click();
+  await page.getByRole("option", { name: "等宽" }).click();
+  await expect(
+    page.getByRole("combobox", { name: "正文字体" }),
+  ).toHaveAttribute("data-value", "mono");
+  await page.getByRole("button", { name: "背景", exact: true }).click();
   await page
     .locator("input[type=file]")
-    .nth(1)
-    .setInputFiles({
-      name: "background.png",
-      mimeType: "image/png",
-      buffer: Buffer.from(
-        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jP1sAAAAASUVORK5CYII=",
-        "base64",
-      ),
-    });
-  await expect(page.locator(".canvas")).toHaveClass(/bg-custom/);
-  await expect(page.locator(".background-layer")).toHaveAttribute(
-    "style",
-    /data:image\/png/,
-  );
+    .nth(2)
+    .setInputFiles("public/icon-192.png");
+  await page.getByLabel("背景图片透明度", { exact: true }).fill("60");
+  await expect(page.locator(".background-layer")).toHaveCSS("opacity", "0.4");
+  await page.getByRole("button", { name: "动效", exact: true }).click();
+  await page.getByLabel("打字反馈强度", { exact: true }).fill("80");
+  await page.locator(".settings-backdrop").click({ position: { x: 3, y: 3 } });
+  await expect(page.getByRole("dialog")).toHaveCount(0);
   await page.reload();
-  await expect(page.locator(".canvas")).toHaveClass(/bg-custom/);
-  await expect(page.locator(".markdown-body h1")).toHaveText("导入代码");
+  await expect(page.locator(".app")).toHaveClass(/light/);
+  await expect(page.locator(".background-layer")).toHaveCSS("opacity", "0.4");
 });
-
-test("note context menu renames the selected document and exposes move and delete", async ({
+test("hiding chrome keeps a settings entry and focus mode exits", async ({
   page,
 }) => {
-  await page.goto("/");
-  const card = page.locator(".note-card").first();
-  await card.click({ button: "right" });
-  await expect(page.getByRole("menu", { name: "笔记操作" })).toBeVisible();
-  await page.getByRole("menuitem", { name: "重命名", exact: true }).click();
-  await page.getByLabel("新笔记名称").fill("重新整理的笔记");
-  await page.getByRole("button", { name: "确认重命名" }).click();
-  await expect(page.locator(".markdown-body h1")).toHaveText("重新整理的笔记");
-  await card.click({ button: "right" });
-  await expect(page.getByRole("menuitem", { name: "移动笔记" })).toBeVisible();
-  await expect(page.getByRole("menuitem", { name: "删除笔记" })).toBeVisible();
+  await open(page);
+  await page.getByTitle("设置", { exact: true }).click();
+  await page.getByRole("button", { name: "布局", exact: true }).click();
+  for (const label of ["显示顶部文件栏", "显示格式工具栏", "显示底部状态栏"])
+    await page.getByLabel(label, { exact: true }).uncheck();
   await page.keyboard.press("Escape");
-  await expect(card).toBeFocused();
+  await expect(page.locator(".topbar,.formatbar,.statusbar")).toHaveCount(0);
+  await page.getByTitle("设置", { exact: true }).click();
+  await expect(
+    page.getByRole("dialog", { name: "设置", exact: true }),
+  ).toBeVisible();
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("Control+Shift+f");
+  await expect(page.locator(".app")).toHaveClass(/focus-mode/);
+  await page.keyboard.press("Escape");
+  await expect(page.locator(".app")).not.toHaveClass(/focus-mode/);
 });
-
-test("explorer collapses nested directories and remembers disclosure state", async ({
+test("preview sanitizes HTML and scroll synchronization remains bidirectional", async ({
   page,
 }) => {
-  await page.goto("/");
-  await page.getByTitle("新建目录", { exact: true }).click();
-  await page.getByLabel("目录路径").fill("研究/资料/书籍");
-  await page.getByRole("button", { name: "创建目录", exact: true }).click();
-  await expect(
-    page.getByRole("button", { name: "目录 研究/资料/书籍", exact: true }),
-  ).toBeVisible();
+  await open(
+    page,
+    Array.from(
+      { length: 55 },
+      (_, i) => `## Section ${i}\n\n${"paragraph ".repeat(20)}\n`,
+    ).join("\n") +
+      '<img src=x onerror="window.broken=1"><script>window.broken=1</script>',
+  );
+  await page.getByTitle("分屏", { exact: true }).click();
+  await expect(page.locator(".preview-pane script,[onerror]")).toHaveCount(0);
   await page
-    .getByRole("button", { name: "折叠目录 研究", exact: true })
-    .click();
-  await expect(
-    page.getByRole("button", { name: "目录 研究/资料", exact: true }),
-  ).toHaveCount(0);
-  await page.reload();
-  await expect(
-    page.getByRole("button", { name: "展开目录 研究", exact: true }),
-  ).toBeVisible();
-  await page
-    .getByRole("button", { name: "展开目录 研究", exact: true })
-    .click();
-  await expect(
-    page.getByRole("button", { name: "目录 研究/资料/书籍", exact: true }),
-  ).toBeVisible();
-});
-
-test("document library supports sorting and persisted list/card views", async ({
-  page,
-}) => {
-  await page.goto("/");
-  await selectChoice(page, "文档排序", "title");
-  const titles = await page.locator(".note-card strong").allTextContents();
-  expect(titles).toEqual(
-    [...titles].sort((a, b) => a.localeCompare(b, "zh-CN")),
-  );
-  await expect(page.locator(".note-list")).toHaveClass(/document-list/);
-  await selectChoice(page, "文档视图", "cards");
-  await page.reload();
-  await expect(page.getByLabel("文档视图")).toHaveAttribute(
-    "data-value",
-    "cards",
-  );
-  await expect(page.getByLabel("文档排序")).toHaveAttribute(
-    "data-value",
-    "title",
-  );
+    .locator(".cm-scroller")
+    .evaluate((el) => (el.scrollTop = el.scrollHeight * 0.5));
+  await expect
+    .poll(() => page.locator(".preview-pane").evaluate((el) => el.scrollTop))
+    .toBeGreaterThan(300);
+  await page.locator(".preview-pane").evaluate((el) => (el.scrollTop = 150));
+  await expect
+    .poll(() => page.locator(".cm-scroller").evaluate((el) => el.scrollTop))
+    .toBeLessThan(700);
 });
