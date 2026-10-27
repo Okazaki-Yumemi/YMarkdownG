@@ -1,6 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import CodeMirror, { type ReactCodeMirrorRef } from "@uiw/react-codemirror";
+import CodeMirror, {
+  ExternalChange,
+  Transaction,
+  type ReactCodeMirrorRef,
+} from "@uiw/react-codemirror";
 import { markdown } from "@codemirror/lang-markdown";
 import { languages } from "@codemirror/language-data";
 import { EditorView } from "@codemirror/view";
@@ -672,6 +676,37 @@ function App() {
                     value={doc.content}
                     onChange={update}
                     theme="none"
+                    onUpdate={(change) => {
+                      // The wrapper can replay a queued value after typing ends.
+                      // Ignore that stale echo, keeping the view on our latest
+                      // document without generating another user edit.
+                      if (
+                        !change.docChanged ||
+                        !change.transactions.some((tr) =>
+                          tr.annotation(ExternalChange),
+                        )
+                      )
+                        return;
+                      const id = current.current.id;
+                      queueMicrotask(() => {
+                        const view = editor.current?.view;
+                        if (view !== change.view || current.current.id !== id)
+                          return;
+                        const content = current.current.content;
+                        if (view.state.doc.toString() !== content)
+                          view.dispatch({
+                            changes: {
+                              from: 0,
+                              to: view.state.doc.length,
+                              insert: content,
+                            },
+                            annotations: [
+                              ExternalChange.of(true),
+                              Transaction.addToHistory.of(false),
+                            ],
+                          });
+                      });
+                    }}
                     extensions={extensions}
                     basicSetup={{
                       lineNumbers: true,
