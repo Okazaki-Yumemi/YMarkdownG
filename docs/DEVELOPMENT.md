@@ -50,3 +50,15 @@ npm run package:linux
 ## 兼容旧版
 
 旧版笔记目录和 `.md`、图片文件不作修改；旧 `workspace.json` 不再读取。外观偏好继续使用 `ymg-prefs`，仅加载现有设置字段。
+
+## 文件打开与启动测量
+
+应用使用单实例锁。系统再次打开 Markdown 时通过请求队列交给现有窗口；队列沿用保存、取消和图片写入保护。macOS 的 `open-file` 事件也进入同一流程。
+
+```sh
+node scripts/benchmark-open.mjs release/win-unpacked/YMarkdownG.exe
+```
+
+基准使用约 7.5 KB 文档、三个新进程和独立配置目录，测量到所见即所得可编辑。一次本机 Windows 测量为 544 / 379 / 381 ms，中位数 381 ms；包含自动化连接开销，使用正常系统文件缓存和隐藏测试窗口。不是跨设备性能保证。
+
+单文件便携 EXE 每次启动先解压运行时，不能用上述数值估计它的启动耗时。日常使用建议安装版；该基准应指向安装目录或解包目录中的 `YMarkdownG.exe`。

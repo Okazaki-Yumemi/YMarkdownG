@@ -1,6 +1,6 @@
 {
   "name": "ymarkdowng",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "description": "桌面 Markdown 编辑器",
   "scripts": {
     "dev": "node scripts/dev.mjs",
